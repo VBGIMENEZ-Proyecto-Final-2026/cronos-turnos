@@ -25,3 +25,17 @@ docker compose down       # apaga y conserva los datos (-v los borra)
 ```
 
 La base solo escucha en `127.0.0.1`. No usar H2, SQLite ni bases embebidas. Las migraciones de este servicio son propias y no tocan la base del otro.
+
+## Ejecutar el servicio
+
+Requiere JDK 25 y la base levantada (sección anterior).
+
+```bash
+./gradlew bootRun                         # arranca en el puerto 8081
+curl localhost:8081/actuator/health       # {"status":"UP", ...}
+./gradlew test                            # contexto + ArchUnit (usa Testcontainers: necesita Docker o Podman)
+```
+
+Con Podman: `export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock TESTCONTAINERS_RYUK_DISABLED=true`.
+
+Estado actual: es solo el esqueleto (`ar.edu.um.cronos`, Flyway sin migraciones, sin endpoints de negocio). Registro, login y reservas vienen en las próximas ramas.
