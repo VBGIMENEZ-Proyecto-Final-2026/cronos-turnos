@@ -1,6 +1,8 @@
 package ar.edu.um.cronos.adapters.out.persistence;
 
 import ar.edu.um.cronos.TestcontainersConfigurationImport;
+import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
+import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.UserRepository;
 import ar.edu.um.cronos.domain.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,7 +72,7 @@ class JpaUserRepositoryTest {
         users.save(nuevo("juan.perez", null));
 
         assertThatThrownBy(() -> users.save(nuevo("juan.perez", null)))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(LoginAlreadyUsedException.class);
     }
 
     @Test
@@ -78,7 +80,7 @@ class JpaUserRepositoryTest {
         users.save(nuevo("juan", "mismo@ejemplo.test"));
 
         assertThatThrownBy(() -> users.save(nuevo("ana", "mismo@ejemplo.test")))
-                .isInstanceOf(DataIntegrityViolationException.class);
+                .isInstanceOf(EmailAlreadyUsedException.class);
     }
 
     @Test
