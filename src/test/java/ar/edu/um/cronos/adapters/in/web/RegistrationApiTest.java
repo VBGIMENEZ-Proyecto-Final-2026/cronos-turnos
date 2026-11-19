@@ -22,7 +22,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Registro de punta a punta: HTTP, validaciones, seguridad y PostgreSQL real. */
-@SpringBootTest
+// Niveles de log altos para que la prueba de logs no sea vacía: con la configuración normal estas peticiones casi
+// no escriben nada y "la contraseña no aparece" sería verdad por no haber nada que mirar. Se sube la seguridad, el
+// SQL con sus parámetros y el código propio. No se sube org.springframework.web: en DEBUG/TRACE, Spring escribe
+// el "rejected value" de una validación fallida, que incluye la contraseña si es ella la que falla (ver README).
+// El logger de MockMvc se baja porque imprime los cuerpos de la prueba, no de la aplicación.
+@SpringBootTest(properties = {
+        "logging.level.org.springframework.security=TRACE",
+        "logging.level.org.hibernate.SQL=DEBUG",
+        "logging.level.org.hibernate.orm.jdbc.bind=TRACE",
+        "logging.level.ar.edu.um.cronos=TRACE",
+        "logging.level.org.springframework.test=INFO"})
 @AutoConfigureMockMvc
 @TestcontainersConfigurationImport
 @ExtendWith(OutputCaptureExtension.class)
