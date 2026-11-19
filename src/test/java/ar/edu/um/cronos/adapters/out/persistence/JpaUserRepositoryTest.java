@@ -1,6 +1,6 @@
 package ar.edu.um.cronos.adapters.out.persistence;
 
-import ar.edu.um.cronos.TestcontainersConfigurationImport;
+import ar.edu.um.cronos.IntegrationTestSupport;
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.UserRepository;
@@ -19,7 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** Prueba la migración V1 y el adaptador contra un PostgreSQL real (Testcontainers). */
 @SpringBootTest
-@TestcontainersConfigurationImport
+@IntegrationTestSupport
 class JpaUserRepositoryTest {
 
     private static final Instant NOW = Instant.parse("2026-11-19T12:00:00Z");

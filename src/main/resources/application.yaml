@@ -20,6 +20,16 @@ server:
   # Atlas usa 8080; cronos 8081 para poder correr los dos a la vez.
   port: ${CRONOS_SERVER_PORT:8081}
 
+cronos:
+  security:
+    jwt:
+      # Clave PRIVADA RSA (PKCS#8) con la que cronos firma los JWT (RS256). Solo una de las dos; sin ninguna la
+      # aplicación no arranca. Atlas valida con la pública. Nunca en el repo: ver .env.example.
+      private-key: ${CRONOS_JWT_PRIVATE_KEY:}
+      private-key-location: ${CRONOS_JWT_PRIVATE_KEY_LOCATION:}
+      ttl: ${CRONOS_JWT_TTL:1h}
+      remember-me-ttl: ${CRONOS_JWT_REMEMBER_ME_TTL:30d}
+
 management:
   endpoints:
     web:

@@ -1,6 +1,6 @@
 package ar.edu.um.cronos.adapters.in.web;
 
-import ar.edu.um.cronos.TestcontainersConfigurationImport;
+import ar.edu.um.cronos.IntegrationTestSupport;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "logging.level.ar.edu.um.cronos=TRACE",
         "logging.level.org.springframework.test=INFO"})
 @AutoConfigureMockMvc
-@TestcontainersConfigurationImport
+@IntegrationTestSupport
 @ExtendWith(OutputCaptureExtension.class)
 class RegistrationApiTest {
 

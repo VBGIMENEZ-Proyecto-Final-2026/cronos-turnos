@@ -2,6 +2,7 @@ package ar.edu.um.cronos.adapters.in.web;
 
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
+import ar.edu.um.cronos.application.user.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,13 +32,15 @@ class ApiExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(ApiExceptionHandler.class);
 
     /**
-     * {@code INVALID_PASSWORD} cuando lo único que falla es el largo de una contraseña presente; en cualquier otro
-     * caso (falta un campo, un formato o un largo inválido) {@code VALIDATION_ERROR}.
+     * En el registro, {@code INVALID_PASSWORD} cuando lo único que falla es el largo de una contraseña presente; en
+     * cualquier otro caso (falta un campo, un formato o un largo inválido, o cualquier error del login)
+     * {@code VALIDATION_ERROR}.
      */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     ResponseEntity<ProblemDetail> cuerpoInvalido(MethodArgumentNotValidException e, HttpServletRequest request) {
         List<FieldError> errors = e.getBindingResult().getFieldErrors();
-        boolean soloLargoDeContrasena = e.getBindingResult().getErrorCount() == errors.size() && !errors.isEmpty()
+        boolean soloLargoDeContrasena = "registerRequest".equals(e.getBindingResult().getObjectName())
+                && e.getBindingResult().getErrorCount() == errors.size() && !errors.isEmpty()
                 && errors.stream().allMatch(f -> f.getField().equals("password") && "Size".equals(f.getCode()));
         ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, soloLargoDeContrasena ? "INVALID_PASSWORD"
                 : "VALIDATION_ERROR", request);
@@ -66,6 +69,13 @@ class ApiExceptionHandler {
     @ExceptionHandler(EmailAlreadyUsedException.class)
     ResponseEntity<ProblemDetail> emailRepetido(HttpServletRequest request) {
         return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "EMAIL_ALREADY_EXISTS", request));
+    }
+
+    /** Un 401 igual para cualquier causa: no dice si el login no existe, la contraseña falló o el usuario no está activo. */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    ResponseEntity<ProblemDetail> credencialesInvalidas(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(problem(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", request));
     }
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
