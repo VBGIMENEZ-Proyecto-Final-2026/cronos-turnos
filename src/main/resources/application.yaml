@@ -34,6 +34,26 @@ cronos:
     cors:
       # Orígenes permitidos separados por coma (esquema://host[:puerto]); vacío = ninguno.
       allowed-origins: ${CRONOS_CORS_ALLOWED_ORIGINS:}
+  # Servicio de catálogo (atlas-catalogo): cronos le reenvía el JWT del usuario, no tiene credencial propia (ADR 0004).
+  atlas:
+    base-url: ${ATLAS_BASE_URL:http://localhost:8080}
+    connect-timeout: ${ATLAS_CONNECT_TIMEOUT:2s}
+    read-timeout: ${ATLAS_READ_TIMEOUT:5s}
+    max-retries: ${ATLAS_MAX_RETRIES:1}
+  availability:
+    # Zona de las horas locales del consultorio (los horarios no traen zona): decide qué turnos ya empezaron.
+    zone: ${CRONOS_CLINIC_ZONE:America/Argentina/Buenos_Aires}
+    max-range-days: ${CRONOS_AVAILABILITY_MAX_RANGE_DAYS:31}
+
+# Servicio central de la cátedra (cuenta técnica del proyecto). Mismas variables que atlas-catalogo.
+# Obligatorias: sin URL o sin token la aplicación no arranca.
+catedra:
+  rest:
+    base-url: ${CATEDRA_REST_BASE_URL:}
+    id-token: ${CATEDRA_ID_TOKEN:}
+    connect-timeout: ${CATEDRA_REST_CONNECT_TIMEOUT:3s}
+    read-timeout: ${CATEDRA_REST_READ_TIMEOUT:10s}
+    max-retries: ${CATEDRA_REST_MAX_RETRIES:1}
 
 management:
   endpoints:

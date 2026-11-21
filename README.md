@@ -12,7 +12,7 @@ Las variables de entorno se declaran en `.env.example` (versionado, con placehol
 cp .env.example .env   # .env está ignorado por git
 ```
 
-Completar los valores con la respuesta de la cuenta técnica de la cátedra. Los dos backends comparten el mismo set de variables `CATEDRA_*`. Nunca commitear `.env`, tokens ni IPs. Convención completa en `alejandria-docs`.
+Completar los valores con la respuesta de la cuenta técnica de la cátedra. Los dos backends comparten el mismo set de variables `CATEDRA_*`. **Cronos no arranca sin `CATEDRA_REST_BASE_URL` y `CATEDRA_ID_TOKEN`** (el mensaje dice cuál falta). Nunca commitear `.env`, tokens ni IPs. Convención completa en `alejandria-docs`.
 
 ## Base de datos local
 
@@ -102,7 +102,7 @@ Con cronos (`:8081`) y atlas (`:8080`) corriendo y con la clave pública del mis
 scripts/recorrido-cliente.sh          # LIMPIAR=1 borra al final el usuario de prueba
 ```
 
-Registra a un cliente, inicia sesión, consulta su cuenta, usa **el mismo token en atlas** (categorías y profesionales), prueba los malos tokens (sin token, alterado, de otra clave, vencido, sin rol) en los dos servicios y termina mirando los horarios de un profesional. Cada paso dice si la respuesta fue la esperada y el script sale con error si alguna no lo fue. Requiere `curl`, `jq`, `openssl` y `python3`. Los tokens vencido y sin rol los firma el script con la clave de desarrollo (`DEV_PRIVATE_KEY`, por defecto `~/.atlas-dev/dev-private.pem`); sin ella se omiten. El último paso (turnos de un profesional) lo calcula el script a modo de ejemplo: **cronos todavía no calcula disponibilidad**.
+Registra a un cliente, inicia sesión, consulta su cuenta, usa **el mismo token en atlas** (categorías y profesionales), prueba los malos tokens (sin token, alterado, de otra clave, vencido, sin rol) en los dos servicios y termina pidiéndole a cronos los turnos libres de un profesional (atlas + cátedra). Cada paso dice si la respuesta fue la esperada y el script sale con error si alguna no lo fue. Requiere `curl`, `jq`, `openssl` y `python3`. Los tokens vencido y sin rol los firma el script con la clave de desarrollo (`DEV_PRIVATE_KEY`, por defecto `~/.atlas-dev/dev-private.pem`); sin ella se omiten. El último bloque necesita además que la **cátedra** responda (cronos le pide las ocupaciones con la cuenta técnica); si no responde, ese paso sale mal con `503 CATEDRA_UNAVAILABLE`.
 
 ### CORS
 
@@ -132,4 +132,41 @@ Las pruebas no usan ninguna clave guardada: generan una al vuelo.
 - **Mínimo de 4 caracteres:** es el de la cátedra y es débil.
 - **Contraseñas de más de 72 bytes:** BCrypt no las admite, así que se prehashean con SHA-256 antes de BCrypt; el hash guardado sigue siendo un BCrypt estándar.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, disponibilidad, bloqueos ni reservas: vienen en las próximas ramas.
+## Disponibilidad
+
+### Turnos libres: `GET /api/professionals/{professionalId}/availability?from=&to=` (requiere token)
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "localhost:8081/api/professionals/207/availability?from=2026-11-23&to=2026-11-25"
+# {"professionalId":207,"from":"2026-11-23","to":"2026-11-25","slots":[{"date":"2026-11-23","startTime":"18:00:00","endTime":"18:30:00"}, ...]}
+```
+
+Pide **a atlas** los horarios semanales del profesional (`GET /api/professionals/{id}`, **reenviándole el mismo JWT del usuario**, ADR 0004) y **a la cátedra** las ocupaciones del rango (`GET /api/appointment-occupancies`, con el JWT técnico del proyecto). Devuelve la grilla de cada horario habilitado menos las ocupaciones `CONFIRMED` y `HELD`. **No guarda nada**: ni el catálogo ni las ocupaciones; cada consulta las pide de nuevo.
+
+| Regla | Detalle |
+|---|---|
+| Grilla | De `startTime` a `endTime`, cada `slotDurationMinutes`. Solo cuentan los turnos que **entran completos**. |
+| Qué no se ofrece | Un profesional o un horario **deshabilitado**, un turno que **ya empezó** (se decide en la hora local del consultorio, `CRONOS_CLINIC_ZONE`), uno ocupado o bloqueado. |
+| Rango | Fechas `yyyy-MM-dd`, `from` no posterior a `to`, máximo 31 días (`CRONOS_AVAILABILITY_MAX_RANGE_DAYS`). |
+| Orden de las consultas | Primero atlas; si atlas falla, **no se consulta a la cátedra**. Si el profesional no atiende en el rango, tampoco se la consulta. A la cátedra se le pregunta **una sola vez** por todo el rango. |
+
+| Situación | Respuesta |
+|---|---|
+| Rango inválido (invertido o demasiado largo) | `400 INVALID_DATE_RANGE` |
+| Fecha mal formada, falta un parámetro o el id no es un número | `400 VALIDATION_ERROR` (nombra el parámetro, no repite el valor) |
+| Sin token / sin rol | `401 NO_AUTENTICADO` / `403 SIN_PERMISO` |
+| Profesional que atlas no conoce | `404 PROFESSIONAL_NOT_FOUND` |
+| Atlas caído, lento o que rechaza el token | `503 CATALOG_UNAVAILABLE` (sin catálogo no se puede validar la información vigente) |
+| Cátedra caída, lenta o que rechaza la credencial técnica | `503 CATEDRA_UNAVAILABLE` (nunca se inventan turnos libres) |
+
+**Timeouts y reintentos acotados.** Atlas: 2 s para conectar, 5 s para leer, 1 reintento; cátedra: 3 s, 10 s, 1 reintento (`ATLAS_*` y `CATEDRA_REST_*`, máximo 5 reintentos). Solo se reintentan **lecturas** y solo fallas transitorias (red, timeout y `503`). **No se siguen redirecciones**: un token nunca se reenvía a otro destino. Ningún token (el del usuario ni el técnico) se escribe en un log ni en un mensaje de error.
+
+**Límites conocidos:**
+- Un turno se identifica por **fecha y hora de inicio**, como informa la cátedra; si dos horarios del mismo día se superponen con grillas desfasadas, un turno ocupado solo quita el que empieza a esa hora.
+- La disponibilidad es una **foto**: entre que se consulta y se pide un hold, otro usuario puede tomar el turno. El hold (próxima etapa) es lo que lo reserva.
+- Los horarios se truncan al minuto (se ignoran los segundos).
+- Atlas responde con su copia local: si no sincronizó con la cátedra, los horarios pueden estar desactualizados.
+- Probado contra atlas real y **cátedra simulada**; la prueba contra la cátedra real depende de que su red esté accesible.
+
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, bloqueos (holds) ni reservas: vienen en las próximas ramas.

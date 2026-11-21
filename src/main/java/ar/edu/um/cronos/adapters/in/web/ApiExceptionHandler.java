@@ -1,7 +1,11 @@
 package ar.edu.um.cronos.adapters.in.web;
 
+import ar.edu.um.cronos.application.availability.InvalidDateRangeException;
+import ar.edu.um.cronos.application.port.out.CatalogUnavailableException;
+import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
+import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.application.user.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -16,8 +20,10 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.transaction.TransactionException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.List;
 import java.util.Map;
@@ -88,6 +94,50 @@ class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> cuentaNoDisponible(HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .body(problem(HttpStatus.UNAUTHORIZED, "NO_AUTENTICADO", request));
+    }
+
+    /**
+     * Un parámetro de la ruta o de la consulta que falta o no tiene el formato esperado (por ejemplo, una fecha que
+     * no es {@code yyyy-MM-dd}). Solo se nombra el parámetro: el valor recibido no se repite.
+     */
+    @ExceptionHandler({MissingServletRequestParameterException.class, MethodArgumentTypeMismatchException.class})
+    ResponseEntity<ProblemDetail> parametroInvalido(Exception e, HttpServletRequest request) {
+        String parameter = e instanceof MissingServletRequestParameterException missing
+                ? missing.getParameterName()
+                : ((MethodArgumentTypeMismatchException) e).getName();
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", request);
+        problem.setTitle("Method argument not valid");
+        problem.setProperty("message", "error.validation");
+        problem.setProperty("fieldErrors", List.of(Map.of("objectName", "request", "field", parameter,
+                "message", "invalid or missing")));
+        return ResponseEntity.badRequest().body(problem);
+    }
+
+    @ExceptionHandler(InvalidDateRangeException.class)
+    ResponseEntity<ProblemDetail> rangoInvalido(InvalidDateRangeException e, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "INVALID_DATE_RANGE", request));
+    }
+
+    @ExceptionHandler(ProfessionalNotFoundException.class)
+    ResponseEntity<ProblemDetail> profesionalInexistente(ProfessionalNotFoundException e,
+                                                         HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(problem(HttpStatus.NOT_FOUND, "PROFESSIONAL_NOT_FOUND", request));
+    }
+
+    /** Sin catálogo no se puede validar la información vigente (enunciado 8): se responde 503 y se dice cuál. */
+    @ExceptionHandler(CatalogUnavailableException.class)
+    ResponseEntity<ProblemDetail> catalogoNoDisponible(CatalogUnavailableException e, HttpServletRequest request) {
+        log.warn("El catálogo no está disponible para {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "CATALOG_UNAVAILABLE", request));
+    }
+
+    @ExceptionHandler(CatedraUnavailableException.class)
+    ResponseEntity<ProblemDetail> catedraNoDisponible(CatedraUnavailableException e, HttpServletRequest request) {
+        log.warn("La cátedra no está disponible para {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "CATEDRA_UNAVAILABLE", request));
     }
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})

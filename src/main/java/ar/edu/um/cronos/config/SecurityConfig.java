@@ -39,7 +39,8 @@ import java.util.List;
  *
  * <ul>
  *   <li>Son públicos {@code GET /actuator/health}, {@code POST /api/register} y {@code POST /api/authenticate}.</li>
- *   <li>{@code GET /api/account} pide {@code ROLE_USER} o {@code ROLE_ADMIN}.</li>
+ *   <li>{@code GET /api/account} y {@code GET /api/professionals/{id}/availability} piden {@code ROLE_USER} o
+ *       {@code ROLE_ADMIN}.</li>
  *   <li>Todo lo demás se deniega, exista o no la ruta. Las demás rutas se habilitan junto con sus casos de uso.</li>
  * </ul>
  *
@@ -75,6 +76,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, PUBLIC_GET).permitAll()
                         .requestMatchers(HttpMethod.POST, PUBLIC_POST).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/account").hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
+                        .requestMatchers(HttpMethod.GET, "/api/professionals/*/availability")
+                        .hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint(problems)
