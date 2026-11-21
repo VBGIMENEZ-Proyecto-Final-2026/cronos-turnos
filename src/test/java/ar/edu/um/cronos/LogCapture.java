@@ -34,6 +34,25 @@ public final class LogCapture implements AutoCloseable {
         return text.toString();
     }
 
+    /** Lo registrado, sin lo que escribieron los loggers que empiezan con alguno de los prefijos dados. */
+    public String textExcluding(String... loggerPrefixes) {
+        StringBuilder text = new StringBuilder();
+        for (ILoggingEvent event : appender.list) {
+            boolean excluded = false;
+            for (String prefix : loggerPrefixes) {
+                excluded |= event.getLoggerName().startsWith(prefix);
+            }
+            if (excluded) {
+                continue;
+            }
+            text.append(event.getFormattedMessage()).append('\n');
+            if (event.getThrowableProxy() != null) {
+                text.append(ThrowableProxyUtil.asString(event.getThrowableProxy())).append('\n');
+            }
+        }
+        return text.toString();
+    }
+
     public int events() {
         return appender.list.size();
     }

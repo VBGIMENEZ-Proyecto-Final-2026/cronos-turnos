@@ -23,7 +23,7 @@ import java.util.concurrent.Executors;
 public final class StubServer implements AutoCloseable {
 
     /** Un pedido recibido. */
-    public record Request(String method, String uri, Map<String, List<String>> headers) {
+    public record Request(String method, String uri, Map<String, List<String>> headers, String body) {
 
         public String header(String name) {
             for (var entry : headers.entrySet()) {
@@ -96,8 +96,9 @@ public final class StubServer implements AutoCloseable {
     }
 
     private void handle(HttpExchange exchange) throws IOException {
+        String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
         requests.add(new Request(exchange.getRequestMethod(), exchange.getRequestURI().toString(),
-                Map.copyOf(exchange.getRequestHeaders())));
+                Map.copyOf(exchange.getRequestHeaders()), requestBody));
         Reply reply = replies.poll();
         if (reply == null) {
             reply = last;
