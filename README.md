@@ -194,6 +194,7 @@ Valida el turno contra atlas (el profesional existe, está habilitado y el turno
 - **Si no se sabe si la cátedra creó el hold** (no respondió), el proceso se cierra como `FAILED` (`CATEDRA_UNAVAILABLE`) y el hold, si existe, vence solo.
 - **Si no se sabe si confirmó**, se reconcilia **una vez** (repetir la confirmación es seguro: `RESERVATION_PROCESS_ALREADY_CONFIRMED` cuenta como éxito) y, si sigue sin saberse, queda en `HELD`: **volver a mandar el mismo pedido retoma la confirmación** sin crear otro hold.
 - Los holds **nunca se reintentan solos**: tienen efectos y un timeout no prueba que fallaron.
+- **Un proceso que ya venció se cierra al volver a pedir el turno.** Si el proceso activo (`HELD` o `WAITING_FOR_PHONE`) ya pasó su `expiresAt`, se cierra como `EXPIRED` y se empieza uno nuevo; una reserva `CONFIRMED` no vence. Con la cátedra real el hold vence solo y cronos, sin consumidor de Kafka todavía, no se entera: sin esta regla el usuario recibiría un proceso que ya no existe.
 
 | Situación | Respuesta |
 |---|---|
@@ -208,7 +209,8 @@ Valida el turno contra atlas (el profesional existe, está habilitado y el turno
 | La cátedra rechaza por un motivo que no debería ocurrir (paciente que no coincide, hold de otra cuenta, cuerpo rechazado) | `502 CATEDRA_ERROR` (sin detalle; queda en el log) |
 
 **Límites conocidos:**
-- Todavía **no hay listado ni consulta** de reservas, ni cancelación, ni Kafka: un proceso queda en `WAITING_FOR_PHONE` hasta que se implementen los issues #15 y #12, y vence solo en la cátedra.
+- Todavía **no hay listado ni consulta** de reservas, ni cancelación, ni Kafka (issues #12 y #15): un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`) o se implemente el evento de expiración y el barrido al reiniciar (#15 y #13).
+- Probado con **un hold real** contra la cátedra el 2026-11-21 (evidencia `isla-2-holds.md` en la biblioteca).
 - Un proceso que queda en `STARTING` (por ejemplo, si cronos se corta justo después de crearse) o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces un pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
 - El nombre del paciente es un dato personal: ninguna clase de cronos lo escribe en un log. Con `TRACE` en `org.hibernate` o en `org.postgresql`, Hibernate y el driver escriben los valores que enlazan al SQL (incluido el nombre); no se activa fuera del desarrollo.
 - Los datos del profesional guardados con la reserva son una foto de cuando se reservó, no el catálogo vigente.
