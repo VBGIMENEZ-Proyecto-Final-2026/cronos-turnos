@@ -92,11 +92,13 @@ public class AtlasCatalogClient implements CatalogClient {
             schedules.add(new WeeklySchedule(s.dayOfWeek(), s.startTime(), s.endTime(), s.slotDurationMinutes(),
                     s.enabled()));
         }
-        return new ProfessionalAgenda(professionalId, detail.enabled(), schedules);
+        return new ProfessionalAgenda(professionalId, detail.enabled(), detail.firstName(), detail.lastName(),
+                schedules);
     }
 
     /** Parte del JSON de atlas que cronos usa; los campos que no conoce se ignoran. */
-    record ProfessionalDetailJson(Long id, Boolean enabled, List<ScheduleJson> schedules) {
+    record ProfessionalDetailJson(Long id, String firstName, String lastName, Boolean enabled,
+                                  List<ScheduleJson> schedules) {
 
         record ScheduleJson(DayOfWeek dayOfWeek, LocalTime startTime, LocalTime endTime,
                             Integer slotDurationMinutes, Boolean enabled) {

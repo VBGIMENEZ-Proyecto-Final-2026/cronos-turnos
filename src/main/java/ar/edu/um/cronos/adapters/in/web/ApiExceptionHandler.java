@@ -2,10 +2,16 @@ package ar.edu.um.cronos.adapters.in.web;
 
 import ar.edu.um.cronos.application.availability.InvalidDateRangeException;
 import ar.edu.um.cronos.application.port.out.CatalogUnavailableException;
+import ar.edu.um.cronos.application.port.out.CatedraFailure;
+import ar.edu.um.cronos.application.port.out.CatedraRejectedException;
 import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
+import ar.edu.um.cronos.application.port.out.ReservationConflictException;
+import ar.edu.um.cronos.application.reservation.InvalidSlotException;
+import ar.edu.um.cronos.application.reservation.ProfessionalDisabledException;
+import ar.edu.um.cronos.application.reservation.ReservationInProgressException;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.application.user.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -138,6 +144,58 @@ class ApiExceptionHandler {
         log.warn("La cátedra no está disponible para {} {}", request.getMethod(), request.getRequestURI());
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "CATEDRA_UNAVAILABLE", request));
+    }
+
+    // ---- reservas ------------------------------------------------------------------------------------------
+
+    @ExceptionHandler(InvalidSlotException.class)
+    ResponseEntity<ProblemDetail> turnoInvalido(InvalidSlotException e, HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "INVALID_SLOT", request));
+    }
+
+    @ExceptionHandler(ProfessionalDisabledException.class)
+    ResponseEntity<ProblemDetail> profesionalDeshabilitado(ProfessionalDisabledException e,
+                                                           HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "PROFESSIONAL_DISABLED", request));
+    }
+
+    @ExceptionHandler(ReservationInProgressException.class)
+    ResponseEntity<ProblemDetail> reservaEnCurso(ReservationInProgressException e, HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "RESERVATION_IN_PROGRESS", request));
+    }
+
+    @ExceptionHandler(ReservationConflictException.class)
+    ResponseEntity<ProblemDetail> reservaModificadaPorOtro(ReservationConflictException e,
+                                                           HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "RESERVATION_CONFLICT", request));
+    }
+
+    /**
+     * La cátedra respondió y rechazó la operación. Los motivos que son cosa del usuario (turno tomado, inválido, hold
+     * vencido) se traducen a errores propios; los que serían un error de cronos o de configuración (paciente que no
+     * coincide, hold de otra cuenta, cuerpo rechazado) se informan como una falla de la cátedra, sin detalle.
+     */
+    @ExceptionHandler(CatedraRejectedException.class)
+    ResponseEntity<ProblemDetail> catedraRechazo(CatedraRejectedException e, HttpServletRequest request) {
+        CatedraFailure failure = e.failure();
+        return switch (failure) {
+            case SLOT_ALREADY_HELD, SLOT_ALREADY_RESERVED -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(problem(HttpStatus.CONFLICT, failure.name(), request));
+            case INVALID_SLOT, PROFESSIONAL_DISABLED -> ResponseEntity.badRequest()
+                    .body(problem(HttpStatus.BAD_REQUEST, failure.name(), request));
+            case PROFESSIONAL_NOT_FOUND -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(problem(HttpStatus.NOT_FOUND, "PROFESSIONAL_NOT_FOUND", request));
+            case HOLD_EXPIRED, HOLD_NOT_FOUND -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(problem(HttpStatus.CONFLICT, "HOLD_EXPIRED", request));
+            default -> {
+                log.error("La cátedra rechazó una operación por un motivo que no debería ocurrir ({}) en {} {}",
+                        failure, request.getMethod(), request.getRequestURI());
+                yield ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                        .body(problem(HttpStatus.BAD_GATEWAY, "CATEDRA_ERROR", request));
+            }
+        };
     }
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})

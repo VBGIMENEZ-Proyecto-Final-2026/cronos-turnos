@@ -167,6 +167,52 @@ Pide **a atlas** los horarios semanales del profesional (`GET /api/professionals
 - La disponibilidad es una **foto**: entre que se consulta y se pide un hold, otro usuario puede tomar el turno. El hold (próxima etapa) es lo que lo reserva.
 - Los horarios se truncan al minuto (se ignoran los segundos).
 - Atlas responde con su copia local: si no sincronizó con la cátedra, los horarios pueden estar desactualizados.
-- Probado contra atlas real y **cátedra simulada**; la prueba contra la cátedra real depende de que su red esté accesible.
+- Probado de punta a punta con atlas real **y la cátedra real** el 2026-11-21 (evidencia `isla-2-disponibilidad.md` en la biblioteca): el formato de `appointment-occupancies` coincide con la referencia y un turno `CONFIRMED` real se restó.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, bloqueos (holds) ni reservas: vienen en las próximas ramas.
+## Reservas
+
+### Iniciar una reserva: `POST /api/reservations` (requiere token)
+
+```bash
+curl -s -X POST localhost:8081/api/reservations -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"professionalId":218,"date":"2026-12-15","startTime":"14:30","patientFirstName":"Juan","patientLastName":"Pérez"}'
+# 202 {"id":6,"status":"WAITING_FOR_PHONE","professionalId":218,...,"expiresAt":"2026-12-15T14:44:50Z"}
+```
+
+Valida el turno contra atlas (el profesional existe, está habilitado y el turno está en su agenda y no empezó), le pide un **hold** a la cátedra y lo **confirma inicialmente**. Deja un proceso de reserva **asociado al usuario del token**, que queda esperando la información adicional (el teléfono y el resultado final llegan por Kafka: issue #15). Responde `202 Accepted` porque el proceso sigue.
+
+| Campo | Regla |
+|---|---|
+| `professionalId`, `date`, `startTime` | Obligatorios. El turno tiene que existir en la agenda vigente del profesional. |
+| `patientFirstName`, `patientLastName` | Obligatorios, 2 a 100 caracteres (las reglas de la cátedra para el paciente). |
+| Cualquier otro campo (`id`, `status`, `userId`, `externalPatientId`...) | **Se ignora.** El dueño es el del token; la cátedra conoce al paciente como `user-<id>`, un identificador opaco que no revela el login. |
+
+**Estados del proceso** (`STARTING` → `HELD` → `WAITING_FOR_PHONE` → `CONFIRMED` → `CANCELLED`, y los finales `REJECTED`, `EXPIRED`, `INVALID` y `FAILED`). Un estado final no retrocede. La respuesta no expone el `holdId` ni el `reservationProcessId` de la cátedra.
+
+**Cómo se evita perder o duplicar.** El proceso se guarda **antes** de cada llamada a la cátedra y nunca dentro de una transacción de base de datos mientras se espera a la red.
+- **Pedir dos veces lo mismo no crea dos holds**: el proceso activo del usuario se reutiliza, y la base lo impide con un índice único parcial aunque dos pedidos lleguen a la vez.
+- **Si no se sabe si la cátedra creó el hold** (no respondió), el proceso se cierra como `FAILED` (`CATEDRA_UNAVAILABLE`) y el hold, si existe, vence solo.
+- **Si no se sabe si confirmó**, se reconcilia **una vez** (repetir la confirmación es seguro: `RESERVATION_PROCESS_ALREADY_CONFIRMED` cuenta como éxito) y, si sigue sin saberse, queda en `HELD`: **volver a mandar el mismo pedido retoma la confirmación** sin crear otro hold.
+- Los holds **nunca se reintentan solos**: tienen efectos y un timeout no prueba que fallaron.
+- **Un proceso que ya venció se cierra al volver a pedir el turno.** Si el proceso activo (`HELD` o `WAITING_FOR_PHONE`) ya pasó su `expiresAt`, se cierra como `EXPIRED` y se empieza uno nuevo; una reserva `CONFIRMED` no vence. Con la cátedra real el hold vence solo y cronos, sin consumidor de Kafka todavía, no se entera: sin esta regla el usuario recibiría un proceso que ya no existe.
+
+| Situación | Respuesta |
+|---|---|
+| Cuerpo inválido | `400 VALIDATION_ERROR` |
+| El turno no está en la agenda o ya empezó / el profesional está deshabilitado | `400 INVALID_SLOT` / `400 PROFESSIONAL_DISABLED` |
+| Profesional que atlas no conoce | `404 PROFESSIONAL_NOT_FOUND` |
+| Turno ya tomado en la cátedra | `409 SLOT_ALREADY_HELD` / `409 SLOT_ALREADY_RESERVED` |
+| El hold venció antes de confirmarse | `409 HOLD_EXPIRED` |
+| El mismo pedido se está procesando ahora | `409 RESERVATION_IN_PROGRESS` |
+| Atlas caído | `503 CATALOG_UNAVAILABLE` |
+| Cátedra caída, lenta o que rechaza la credencial técnica | `503 CATEDRA_UNAVAILABLE` |
+| La cátedra rechaza por un motivo que no debería ocurrir (paciente que no coincide, hold de otra cuenta, cuerpo rechazado) | `502 CATEDRA_ERROR` (sin detalle; queda en el log) |
+
+**Límites conocidos:**
+- Todavía **no hay listado ni consulta** de reservas, ni cancelación, ni Kafka (issues #12 y #15): un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`) o se implemente el evento de expiración y el barrido al reiniciar (#15 y #13).
+- Probado con **un hold real** contra la cátedra el 2026-11-21 (evidencia `isla-2-holds.md` en la biblioteca).
+- Un proceso que queda en `STARTING` (por ejemplo, si cronos se corta justo después de crearse) o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces un pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
+- El nombre del paciente es un dato personal: ninguna clase de cronos lo escribe en un log. Con `TRACE` en `org.hibernate` o en `org.postgresql`, Hibernate y el driver escriben los valores que enlazan al SQL (incluido el nombre); no se activa fuera del desarrollo.
+- Los datos del profesional guardados con la reserva son una foto de cuando se reservó, no el catálogo vigente.
+
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, Kafka (información adicional y resultado final), consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas.

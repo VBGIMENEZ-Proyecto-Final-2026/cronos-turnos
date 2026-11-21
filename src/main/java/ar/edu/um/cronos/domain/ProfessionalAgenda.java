@@ -8,10 +8,18 @@ import java.util.List;
  *
  * @param professionalId id del profesional en el catálogo
  * @param enabled        {@code false} si el profesional está deshabilitado: no se le ofrecen turnos
+ * @param firstName      nombre del profesional (puede ser {@code null}); solo para guardar como dato histórico de
+ *                       una reserva, nunca como catálogo vigente
  */
-public record ProfessionalAgenda(long professionalId, boolean enabled, List<WeeklySchedule> schedules) {
+public record ProfessionalAgenda(long professionalId, boolean enabled, String firstName, String lastName,
+                                 List<WeeklySchedule> schedules) {
 
     public ProfessionalAgenda {
         schedules = schedules == null ? List.of() : List.copyOf(schedules);
+    }
+
+    /** Una agenda sin los nombres del profesional (la disponibilidad no los necesita). */
+    public ProfessionalAgenda(long professionalId, boolean enabled, List<WeeklySchedule> schedules) {
+        this(professionalId, enabled, null, null, schedules);
     }
 }
