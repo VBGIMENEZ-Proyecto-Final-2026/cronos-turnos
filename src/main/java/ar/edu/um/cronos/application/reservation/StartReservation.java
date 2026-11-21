@@ -14,6 +14,7 @@ import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.domain.AvailabilityCalculator;
 import ar.edu.um.cronos.domain.ProfessionalAgenda;
 import ar.edu.um.cronos.domain.Reservation;
+import ar.edu.um.cronos.domain.ReservationStatus;
 import ar.edu.um.cronos.domain.Slot;
 import ar.edu.um.cronos.domain.User;
 import org.slf4j.Logger;
@@ -46,7 +47,8 @@ import java.util.Optional;
  * </ol>
  *
  * <p>Pedir dos veces el mismo turno no crea dos holds: el proceso activo del usuario se reutiliza (y la base lo
- * impide con un índice único parcial aunque dos pedidos lleguen a la vez).
+ * impide con un índice único parcial aunque dos pedidos lleguen a la vez). Si ese proceso ya pasó su vencimiento, se
+ * cierra como {@code EXPIRED} y se empieza uno nuevo.
  *
  * <p>El token técnico de la cátedra vive en el adaptador de {@link HoldGateway}; esta clase no lo conoce.
  */
@@ -90,7 +92,12 @@ public class StartReservation {
         Optional<Reservation> existing = reservations.findActive(user.id(), command.professionalId(),
                 command.date(), command.startTime());
         if (existing.isPresent()) {
-            return resume(existing.get(), patientId);
+            if (!hasExpired(existing.get())) {
+                return resume(existing.get(), patientId);
+            }
+            // Su vencimiento ya pasó (la cátedra lo dio por vencido aunque cronos todavía no se enteró por Kafka): se
+            // cierra y se puede volver a pedir el turno, en lugar de devolver un proceso que ya no existe.
+            reservations.save(existing.get().expired(now()));
         }
 
         ProfessionalAgenda agenda = catalog.findAgenda(command.professionalId(), command.userToken());
@@ -119,6 +126,15 @@ public class StartReservation {
      */
     private Instant now() {
         return clock.instant().truncatedTo(ChronoUnit.MICROS);
+    }
+
+    /**
+     * Si un proceso con hold ya pasó su vencimiento. Solo cuentan {@code HELD} y {@code WAITING_FOR_PHONE}: una
+     * reserva {@code CONFIRMED} no vence, y un {@code STARTING} todavía no tiene vencimiento.
+     */
+    private boolean hasExpired(Reservation r) {
+        return (r.status() == ReservationStatus.HELD || r.status() == ReservationStatus.WAITING_FOR_PHONE)
+                && r.expiresAt() != null && !r.expiresAt().isAfter(now());
     }
 
     /** Qué hacer con un proceso activo que ya existía. */

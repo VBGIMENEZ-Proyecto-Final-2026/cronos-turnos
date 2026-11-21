@@ -273,6 +273,28 @@ class ReservationApiTest {
     }
 
     @Test
+    void siElHoldYaVencioEnLaCatedraPedirDeNuevoElMismoTurnoCierraElProcesoViejoYCreaUnoNuevo() throws Exception {
+        String token = tokenDe("ana");
+        // El vencimiento ya pasó (lo que se vio con la cátedra real: el hold vence solo y cronos todavía no se entera).
+        CATEDRA.reply(Reply.json(201, HOLD.replace("2030-01-01T10:00:00Z", "2020-01-01T10:00:00Z")),
+                Reply.json(202, CONFIRMADO.replace("2030-01-01T10:01:00Z", "2020-01-01T10:01:00Z")));
+        long primero = ((Number) com.jayway.jsonpath.JsonPath.read(
+                reservar(token).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString(),
+                "$.id")).longValue();
+
+        CATEDRA.reset();
+        CATEDRA.reply(Reply.json(201, "{\"holdId\":\"hold-nuevo\",\"reservationProcessId\":\"process-nuevo\","
+                + "\"status\":\"HELD\",\"expiresAt\":\"2030-01-01T10:00:00Z\"}"), Reply.json(202, CONFIRMADO.replace(
+                "process-a92b47d0", "process-nuevo")));
+        reservar(token).andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(org.hamcrest.Matchers.not((int) primero)))
+                .andExpect(jsonPath("$.status").value("WAITING_FOR_PHONE"));
+
+        assertThat(filas()).extracting(f -> f.get("status")).containsExactly("EXPIRED", "WAITING_FOR_PHONE");
+        assertThat(pedidosACatedra("POST /api/appointment-holds")).as("el hold nuevo y su confirmación").isEqualTo(2);
+    }
+
+    @Test
     void siOtroUsuarioPideElMismoTurnoYLaCatedraYaLoTieneTomadoRecibeUn409YSuProcesoQuedaFallido() throws Exception {
         String ana = tokenDe("ana");
         String beto = tokenDe("beto");

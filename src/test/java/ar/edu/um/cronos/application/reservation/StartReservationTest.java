@@ -534,6 +534,75 @@ class StartReservationTest {
         assertThat(holds.count("createHold")).isEqualTo(2);
     }
 
+    // ---- un proceso que ya venció ---------------------------------------------------------------------------
+
+    private Reservation procesoConVencimiento(ReservationStatus estado, Instant vence) {
+        var base = Reservation.start(7, 218, "Romina", "Acosta",
+                new ar.edu.um.cronos.domain.Slot(MARTES, HORA, LocalTime.of(15, 0)), "Juan", "Pérez", AHORA.instant());
+        var held = base.held("hold-viejo", "process-viejo", vence, AHORA.instant());
+        var conEstado = switch (estado) {
+            case HELD -> held;
+            case WAITING_FOR_PHONE -> held.waitingForPhone(vence, AHORA.instant());
+            case CONFIRMED -> held.waitingForPhone(vence, AHORA.instant()).moveTo(ReservationStatus.CONFIRMED,
+                    AHORA.instant());
+            default -> throw new IllegalArgumentException();
+        };
+        return reservations.save(conEstado);
+    }
+
+    @Test
+    void siElProcesoActivoYaVencioSeCierraYSeEmpiezaUnoNuevo() {
+        var viejo = procesoConVencimiento(ReservationStatus.WAITING_FOR_PHONE, AHORA.instant().minusSeconds(1));
+
+        var nuevo = caso.execute(pedido("ana"));
+
+        assertThat(nuevo.id()).isNotEqualTo(viejo.id());
+        assertThat(nuevo.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(reservations.rows.get(viejo.id()).status()).isEqualTo(ReservationStatus.EXPIRED);
+        assertThat(holds.count("createHold")).as("se pide un hold nuevo").isEqualTo(1);
+    }
+
+    @Test
+    void tambienVenceUnProcesoQueQuedoEnHeld() {
+        var viejo = procesoConVencimiento(ReservationStatus.HELD, AHORA.instant().minusSeconds(60));
+
+        var nuevo = caso.execute(pedido("ana"));
+
+        assertThat(nuevo.id()).isNotEqualTo(viejo.id());
+        assertThat(reservations.rows.get(viejo.id()).status()).isEqualTo(ReservationStatus.EXPIRED);
+    }
+
+    @Test
+    void unVencimientoJustoAhoraYaVencio() {
+        var viejo = procesoConVencimiento(ReservationStatus.WAITING_FOR_PHONE, AHORA.instant());
+
+        caso.execute(pedido("ana"));
+
+        assertThat(reservations.rows.get(viejo.id()).status()).isEqualTo(ReservationStatus.EXPIRED);
+    }
+
+    @Test
+    void unProcesoQueTodaviaNoVencioSeReutilizaSinTocarloNiPedirOtroHold() {
+        var vigente = procesoConVencimiento(ReservationStatus.WAITING_FOR_PHONE, AHORA.instant().plusSeconds(60));
+
+        var r = caso.execute(pedido("ana"));
+
+        assertThat(r.id()).isEqualTo(vigente.id());
+        assertThat(r.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(holds.calls).isEmpty();
+    }
+
+    @Test
+    void unaReservaConfirmadaNoVenceAunqueSuVencimientoDelHoldYaHayaPasado() {
+        var confirmada = procesoConVencimiento(ReservationStatus.CONFIRMED, AHORA.instant().minusSeconds(3600));
+
+        var r = caso.execute(pedido("ana"));
+
+        assertThat(r.id()).isEqualTo(confirmada.id());
+        assertThat(r.status()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(holds.calls).isEmpty();
+    }
+
     // ---- lo que no debe verse -------------------------------------------------------------------------------
 
     @Test
