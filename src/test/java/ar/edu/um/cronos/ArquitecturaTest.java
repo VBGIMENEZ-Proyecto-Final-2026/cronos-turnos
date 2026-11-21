@@ -9,8 +9,9 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
  * Reglas de dependencia, las mismas que en atlas (ADR 0003): el dominio no conoce frameworks ni capas
- * externas y la aplicación no conoce adaptadores. Todavía no hay clases en esos paquetes, por eso las
- * reglas permiten paquetes vacíos; se endurecen cuando aparezca el primer caso de uso.
+ * externas y la aplicación no conoce adaptadores. Los dos paquetes ya tienen clases (el usuario, los casos de uso
+ * y los puertos), así que las reglas no permiten paquetes vacíos: si alguien los vaciara o los renombrara, la
+ * regla fallaría en lugar de pasar sin mirar nada.
  */
 @AnalyzeClasses(packages = "ar.edu.um.cronos", importOptions = ImportOption.DoNotIncludeTests.class)
 class ArquitecturaTest {
@@ -19,14 +20,12 @@ class ArquitecturaTest {
     static final ArchRule dominioSinFrameworks = noClasses()
             .that().resideInAPackage("..domain..")
             .should().dependOnClassesThat().resideInAnyPackage(
-                    "..application..", "..adapters..", "..config..", "org.springframework..")
-            .allowEmptyShould(true);
+                    "..application..", "..adapters..", "..config..", "org.springframework..");
 
     @ArchTest
     static final ArchRule aplicacionSinAdaptadores = noClasses()
             .that().resideInAPackage("..application..")
             .should().dependOnClassesThat().resideInAnyPackage(
                     "..adapters..", "..config..", "org.springframework.web..", "org.springframework.security..",
-                    "org.springframework.kafka..", "tools.jackson..", "com.fasterxml.jackson..")
-            .allowEmptyShould(true);
+                    "org.springframework.kafka..", "tools.jackson..", "com.fasterxml.jackson..");
 }
