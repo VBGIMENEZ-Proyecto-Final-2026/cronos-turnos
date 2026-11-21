@@ -259,6 +259,20 @@ class ReservationApiTest {
     }
 
     @Test
+    void conUnVencimientoConNanosegundosComoElDeLaCatedraRealElPedidoRepetidoResponderExactamenteLoMismo()
+            throws Exception {
+        String token = tokenDe("ana");
+        CATEDRA.reply(Reply.json(201, HOLD.replace("2030-01-01T10:00:00Z", "2030-01-01T10:00:00.905856025Z")),
+                Reply.json(202, CONFIRMADO.replace("2030-01-01T10:01:00Z", "2030-01-01T10:01:00.123456789Z")));
+
+        String primero = reservar(token).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+        String segundo = reservar(token).andExpect(status().isAccepted()).andReturn().getResponse().getContentAsString();
+
+        assertThat(primero).contains("\"expiresAt\":\"2030-01-01T10:01:00.123456Z\"");
+        assertThat(segundo).isEqualTo(primero);
+    }
+
+    @Test
     void siOtroUsuarioPideElMismoTurnoYLaCatedraYaLoTieneTomadoRecibeUn409YSuProcesoQuedaFallido() throws Exception {
         String ana = tokenDe("ana");
         String beto = tokenDe("beto");

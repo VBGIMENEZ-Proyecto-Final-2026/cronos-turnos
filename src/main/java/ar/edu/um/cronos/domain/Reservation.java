@@ -3,6 +3,7 @@ package ar.edu.um.cronos.domain;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 
 /**
@@ -48,6 +49,11 @@ public record Reservation(
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(createdAt, "createdAt");
         Objects.requireNonNull(updatedAt, "updatedAt");
+        // A la precisión de la base (microsegundos): lo que se devuelve al guardar es idéntico a lo que se lee después.
+        // La cátedra informa el vencimiento con nanosegundos (se vio con la cátedra real) y PostgreSQL los trunca.
+        expiresAt = expiresAt == null ? null : expiresAt.truncatedTo(ChronoUnit.MICROS);
+        createdAt = createdAt.truncatedTo(ChronoUnit.MICROS);
+        updatedAt = updatedAt.truncatedTo(ChronoUnit.MICROS);
     }
 
     /** Un proceso nuevo: registrado en cronos, todavía sin hold. */

@@ -101,6 +101,18 @@ class ReservationTest {
     }
 
     @Test
+    void losInstantesSeGuardanALaPrecisionDeLaBaseYUnVencimientoConNanosegundosNoDifiere() {
+        // La cátedra real informa el vencimiento con nanosegundos (2026-11-21T17:02:25.905856025Z).
+        var conNanos = Instant.parse("2026-11-21T17:02:25.905856025Z");
+
+        var r = nueva().held("hold-1", "process-1", conNanos, T1.plusNanos(789)).waitingForPhone(conNanos, T1.plusNanos(789));
+
+        assertThat(r.expiresAt()).isEqualTo(Instant.parse("2026-11-21T17:02:25.905856Z"));
+        assertThat(r.updatedAt().getNano() % 1000).as("sin nanosegundos sueltos").isZero();
+        assertThat(r.createdAt().getNano() % 1000).isZero();
+    }
+
+    @Test
     void toStringNoImprimeLosNombresDelPaciente() {
         var texto = nueva().toString();
 
