@@ -94,6 +94,16 @@ Cronos valida sus propios tokens con la clave **pública derivada de la privada*
 
 Son `application/problem+json` con los mismos códigos que atlas. El rechazo **no dice por qué** falló el token y nunca lo repite; el log registra el método y la ruta (y el usuario en un `403`), jamás el token. Las rutas públicas (`register`, `authenticate`, `health`) **ignoran el encabezado `Authorization`**: un cliente con un token vencido guardado puede volver a iniciar sesión.
 
+### Simular el recorrido de un cliente (y la prueba cruzada con atlas)
+
+Con cronos (`:8081`) y atlas (`:8080`) corriendo y con la clave pública del mismo par en atlas:
+
+```bash
+scripts/recorrido-cliente.sh          # LIMPIAR=1 borra al final el usuario de prueba
+```
+
+Registra a un cliente, inicia sesión, consulta su cuenta, usa **el mismo token en atlas** (categorías y profesionales), prueba los malos tokens (sin token, alterado, de otra clave, vencido, sin rol) en los dos servicios y termina mirando los horarios de un profesional. Cada paso dice si la respuesta fue la esperada y el script sale con error si alguna no lo fue. Requiere `curl`, `jq`, `openssl` y `python3`. Los tokens vencido y sin rol los firma el script con la clave de desarrollo (`DEV_PRIVATE_KEY`, por defecto `~/.atlas-dev/dev-private.pem`); sin ella se omiten. El último paso (turnos de un profesional) lo calcula el script a modo de ejemplo: **cronos todavía no calcula disponibilidad**.
+
 ### CORS
 
 Sin `CRONOS_CORS_ALLOWED_ORIGINS` no se acepta ningún origen. Con una lista (`esquema://host[:puerto]`, sin comodines ni rutas) se aceptan solo esos, con `GET`, `POST` y `OPTIONS`, los encabezados `Authorization`, `Content-Type` y `Accept`, y **sin credenciales**. La app Android no es un navegador y no lo necesita.
