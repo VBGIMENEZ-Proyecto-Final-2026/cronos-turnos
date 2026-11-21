@@ -5,7 +5,7 @@
 #
 #   1. registrarse en cronos y repetir el registro      4. consultar su cuenta en cronos
 #   2. iniciar sesión (mal y bien) y mirar el token     5. usar el MISMO token en atlas (categorías, profesionales)
-#   3. qué ve el cliente sin permiso o con un mal token 6. elegir un profesional y ver sus horarios
+#   3. qué ve el cliente sin permiso o con un mal token 6. pedirle a cronos los turnos libres de un profesional
 #
 # Requisitos: cronos en :8081 y atlas en :8080 (con la clave pública del mismo par), curl, jq, openssl y python3.
 #
@@ -147,30 +147,19 @@ fi
 pedir POST "$CRONOS_URL/api/authenticate" -H "$J" -H "Authorization: Bearer ${ALT}" -d "{\"username\":\"$LOGIN\",\"password\":\"$CLAVE\"}"
 esperar "iniciar sesión mandando un token roto en el encabezado" 200
 
-titulo "6. El cliente elige un profesional y mira sus horarios (lo que cronos usará para la disponibilidad)"
-pedir GET "$ATLAS_URL/api/professionals?size=1" "${AUTH[@]}"
+titulo "6. El cliente le pide a cronos los turnos libres de un profesional (horarios de atlas menos ocupaciones de la cátedra)"
+pedir GET "$ATLAS_URL/api/professionals?available=true&size=1" "${AUTH[@]}"
 PID=$(printf '%s' "$BODY" | jq -r '.content[0].id')
-pedir GET "$ATLAS_URL/api/professionals/$PID" "${AUTH[@]}"; esperar "GET atlas /api/professionals/$PID" 200
-printf '%s' "$BODY" > "$TMP/prof.json"
-python3 - "$TMP/prof.json" <<'PY'
-import json, sys, datetime as dt
-p = json.load(open(sys.argv[1]))
-print(f"     → {p['firstName']} {p['lastName']} ({p['category']['name']}), horarios semanales:")
-dias = ['MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY','SUNDAY']
-hoy = dt.date.today()
-for s in p['schedules']:
-    if not s['enabled']:
-        continue
-    d = hoy + dt.timedelta(days=(dias.index(s['dayOfWeek']) - hoy.weekday()) % 7 or 7)
-    a = dt.datetime.combine(d, dt.time.fromisoformat(s['startTime']))
-    b = dt.datetime.combine(d, dt.time.fromisoformat(s['endTime']))
-    paso = dt.timedelta(minutes=s['slotDurationMinutes'])
-    slots = []
-    while a + paso <= b:
-        slots.append(a.strftime('%H:%M')); a += paso
-    print(f"       {s['dayOfWeek']:<9} {s['startTime'][:5]}-{s['endTime'][:5]} cada {s['slotDurationMinutes']} min → {d}: {', '.join(slots)}")
-PY
-echo "     (SIMULADO por este script: restaría las ocupaciones de la cátedra. Cronos todavía NO calcula disponibilidad, holds ni reservas.)"
+DESDE=$(date +%F); HASTA=$(date -d '+13 days' +%F)
+DISP="$CRONOS_URL/api/professionals/$PID/availability"
+pedir GET "$DISP?from=$DESDE&to=$HASTA" "${AUTH[@]}"; esperar "GET cronos disponibilidad del profesional $PID (14 días)" 200
+printf '%s' "$BODY" | jq -r '"     → \(.slots | length) turnos libres; los primeros: \([.slots[:4][] | "\(.date) \(.startTime[:5])"] | join(", "))"' 2>/dev/null
+pedir GET "$DISP?from=$DESDE&to=$HASTA"; esperar "disponibilidad sin token" 401 NO_AUTENTICADO
+pedir GET "$DISP?from=$HASTA&to=$DESDE" "${AUTH[@]}"; esperar "disponibilidad con el rango invertido" 400 INVALID_DATE_RANGE
+pedir GET "$DISP?from=hoy&to=$HASTA" "${AUTH[@]}"; esperar "disponibilidad con una fecha mal formada" 400 VALIDATION_ERROR
+pedir GET "$CRONOS_URL/api/professionals/99999999/availability?from=$DESDE&to=$HASTA" "${AUTH[@]}"
+esperar "disponibilidad de un profesional que no existe" 404 PROFESSIONAL_NOT_FOUND
+echo "     (si la cátedra no responde, cronos contesta 503 CATEDRA_UNAVAILABLE y el primer paso de este bloque sale mal: es lo esperable)"
 
 if [ "${LIMPIAR:-0}" = "1" ]; then
   titulo "7. Limpieza"
