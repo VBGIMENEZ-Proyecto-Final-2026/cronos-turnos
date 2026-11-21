@@ -132,4 +132,4 @@ Las pruebas no usan ninguna clave guardada: generan una al vuelo.
 - **Mínimo de 4 caracteres:** es el de la cátedra y es débil.
 - **Contraseñas de más de 72 bytes:** BCrypt no las admite, así que se prehashean con SHA-256 antes de BCrypt; el hash guardado sigue siendo un BCrypt estándar.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), login con JWT RS256, validación de los tokens propios, `GET /api/account` y CORS. La prueba cruzada con atlas, las reservas y el resto vienen en las próximas etapas y ramas.
+Estado actual: esqueleto, registro de usuarios (migración V1), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, disponibilidad, bloqueos ni reservas: vienen en las próximas ramas.
