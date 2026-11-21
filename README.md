@@ -40,7 +40,7 @@ Con Podman: `export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock TES
 
 ## Usuarios
 
-Cronos registra a los usuarios finales y (próximamente) emite el JWT. Sin JHipster, con Spring Security a mano y el contrato de usuario compatible con el de JHipster (ADR 0005 en la biblioteca).
+Cronos registra a los usuarios finales, emite el JWT y valida los tokens que recibe. Sin JHipster, con Spring Security a mano y el contrato de usuario compatible con el de JHipster (ADR 0005 en la biblioteca).
 
 ### Registro: `POST /api/register` (público)
 
@@ -73,6 +73,31 @@ Misma forma que el login de la cátedra (`INTEGRATION_REFERENCE`, 5.2): `usernam
 
 Una contraseña equivocada, un login inexistente y un usuario no activo dan **el mismo** `401` (`INVALID_CREDENTIALS`): no se revela qué logins existen. Cuando el login no existe igual se calcula un hash de relleno, para que el tiempo de respuesta tampoco lo delate. El login no distingue mayúsculas.
 
+### Cuenta del usuario: `GET /api/account` (requiere token)
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8081/api/account
+```
+
+Devuelve la cuenta (la misma forma que el registro, sin contraseña ni hash) **del dueño del token**: el usuario sale del `sub` del token ya validado y la ruta no recibe ningún identificador, así que nadie puede pedir la cuenta de otro. Pide `ROLE_USER` o `ROLE_ADMIN`.
+
+### Qué valida cronos de un token y qué responde
+
+Cronos valida sus propios tokens con la clave **pública derivada de la privada**: solo RS256 (un token `HS256` o `none` se rechaza), firma, vencimiento con una tolerancia de reloj de 60 segundos (`CRONOS_JWT_CLOCK_SKEW`, 0 a 5 minutos) y los claims `sub` y `exp` obligatorios. Las autoridades salen del claim `auth`.
+
+| Situación | Respuesta |
+|---|---|
+| Sin token, token mal formado, vencido, alterado, de otra clave, de otro algoritmo o sin `exp` | `401` `NO_AUTENTICADO` (con `WWW-Authenticate: Bearer`) |
+| Token válido de un usuario que ya no existe o no está activo | `401` `NO_AUTENTICADO` |
+| Token válido pero sin el rol que pide la ruta, o una ruta no habilitada | `403` `SIN_PERMISO` |
+| Una ruta no habilitada, sin token | `401` `NO_AUTENTICADO` (no se sabe quién es, así que no llega a `403`) |
+
+Son `application/problem+json` con los mismos códigos que atlas. El rechazo **no dice por qué** falló el token y nunca lo repite; el log registra el método y la ruta (y el usuario en un `403`), jamás el token. Las rutas públicas (`register`, `authenticate`, `health`) **ignoran el encabezado `Authorization`**: un cliente con un token vencido guardado puede volver a iniciar sesión.
+
+### CORS
+
+Sin `CRONOS_CORS_ALLOWED_ORIGINS` no se acepta ningún origen. Con una lista (`esquema://host[:puerto]`, sin comodines ni rutas) se aceptan solo esos, con `GET`, `POST` y `OPTIONS`, los encabezados `Authorization`, `Content-Type` y `Accept`, y **sin credenciales**. La app Android no es un navegador y no lo necesita.
+
 ### Clave de firma (obligatoria)
 
 Cronos firma con una clave **privada** RSA (PEM PKCS#8, 2048 bits o más); atlas valida con la **pública**. **Sin clave la aplicación no arranca.** Se carga por `CRONOS_JWT_PRIVATE_KEY_LOCATION` (archivo) o `CRONOS_JWT_PRIVATE_KEY` (PEM con `\n` literales), solo una de las dos, y nunca va en el repositorio (`*.pem` y `*.key` están en `.gitignore`). La pública se deriva de la privada, así que no hace falta una segunda variable.
@@ -91,8 +116,10 @@ Las pruebas no usan ninguna clave guardada: generan una al vuelo.
 
 - **Contraseñas y logs de Spring:** con la configuración normal la contraseña no aparece en ningún log (hay una prueba con niveles altos para la seguridad, el SQL con parámetros y el código propio). Pero si se sube a `DEBUG` o `TRACE` el log de `org.springframework.web`, Spring escribe el *rejected value* de una validación fallida, y eso incluye la contraseña cuando es ella la que no cumple el largo. No se activa ese nivel fuera del desarrollo.
 - **Sin límite de intentos de login:** nada frena a quien prueba contraseñas contra un login. El hash lento de BCrypt y el largo máximo de la contraseña acotan el costo de cada intento, pero no los cuentan.
-- **Sin revocación de tokens:** un token vale hasta que vence (1 hora, o 30 días con `rememberMe`); no hay cierre de sesión en el servidor.
+- **Sin revocación de tokens:** un token vale hasta que vence (1 hora, o 30 días con `rememberMe`); no hay cierre de sesión en el servidor. Lo único que lo invalida antes es borrar o desactivar al usuario: `GET /api/account` lo comprueba en cada pedido.
+- **Los roles salen del token, no de la base:** si a un usuario se le cambia el rol, el token viejo conserva el anterior hasta que vence. `GET /api/account` muestra los roles de la base.
+- **No se valida `iss` ni `aud` (el token no los lleva), y rotar la clave invalida todos los tokens emitidos y exige reiniciar atlas.**
 - **Mínimo de 4 caracteres:** es el de la cátedra y es débil.
 - **Contraseñas de más de 72 bytes:** BCrypt no las admite, así que se prehashean con SHA-256 antes de BCrypt; el hash guardado sigue siendo un BCrypt estándar.
 
-Estado actual: esqueleto, registro de usuarios (migración V1) y login con JWT RS256. La seguridad de las rutas protegidas (`GET /api/account`), la prueba cruzada con atlas, las reservas y el resto vienen en las próximas etapas y ramas.
+Estado actual: esqueleto, registro de usuarios (migración V1), login con JWT RS256, validación de los tokens propios, `GET /api/account` y CORS. La prueba cruzada con atlas, las reservas y el resto vienen en las próximas etapas y ramas.

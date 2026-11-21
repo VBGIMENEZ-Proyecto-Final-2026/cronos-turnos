@@ -5,6 +5,7 @@ import ar.edu.um.cronos.application.port.out.PasswordHasher;
 import ar.edu.um.cronos.application.port.out.TokenIssuer;
 import ar.edu.um.cronos.application.port.out.UserRepository;
 import ar.edu.um.cronos.application.user.AuthenticateUser;
+import ar.edu.um.cronos.application.user.GetAccount;
 import ar.edu.um.cronos.application.user.RegisterUser;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -28,13 +29,25 @@ class UsersConfig {
         return new RegisterUser(users, hasher, clock);
     }
 
-    /** Firma RS256 con la clave privada; sin clave la aplicación no arranca (falla rápido, como atlas sin la pública). */
+    /**
+     * El par de claves con el que cronos firma y valida sus tokens. Sin clave la aplicación no arranca (falla rápido,
+     * como atlas sin la pública). Se carga una sola vez y la pública sale de la privada.
+     */
     @Bean
-    TokenIssuer tokenIssuer(SecurityProperties properties, Clock clock) {
+    JwtKeyPair jwtKeyPair(SecurityProperties properties) {
+        RSAPrivateKey privateKey = JwtPrivateKeys.load(properties.jwt());
+        return new JwtKeyPair(privateKey, JwtPrivateKeys.publicKeyOf(privateKey));
+    }
+
+    @Bean
+    TokenIssuer tokenIssuer(SecurityProperties properties, JwtKeyPair keys, Clock clock) {
         SecurityProperties.Jwt jwt = properties.jwt();
-        RSAPrivateKey privateKey = JwtPrivateKeys.load(jwt);
-        return new NimbusTokenIssuer(privateKey, JwtPrivateKeys.publicKeyOf(privateKey), jwt.ttl(),
-                jwt.rememberMeTtl(), clock);
+        return new NimbusTokenIssuer(keys.privateKey(), keys.publicKey(), jwt.ttl(), jwt.rememberMeTtl(), clock);
+    }
+
+    @Bean
+    GetAccount getAccount(UserRepository users) {
+        return new GetAccount(users);
     }
 
     @Bean

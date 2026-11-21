@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class JwtPrivateKeysTest {
 
     private static SecurityProperties.Jwt jwt(String inline, String location) {
-        return new SecurityProperties.Jwt(inline, location, Duration.ofHours(1), Duration.ofDays(30));
+        return new SecurityProperties.Jwt(inline, location, Duration.ofHours(1), Duration.ofDays(30), Duration.ofSeconds(60));
     }
 
     @Test
@@ -87,9 +87,9 @@ class JwtPrivateKeysTest {
 
     @Test
     void lasVigenciasDebenSerCoherentes() {
-        assertThatThrownBy(() -> new SecurityProperties.Jwt("x", null, Duration.ZERO, Duration.ofDays(1)))
+        assertThatThrownBy(() -> new SecurityProperties.Jwt("x", null, Duration.ZERO, Duration.ofDays(1), Duration.ofSeconds(60)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new SecurityProperties.Jwt("x", null, Duration.ofDays(2), Duration.ofDays(1)))
+        assertThatThrownBy(() -> new SecurityProperties.Jwt("x", null, Duration.ofDays(2), Duration.ofDays(1), Duration.ofSeconds(60)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

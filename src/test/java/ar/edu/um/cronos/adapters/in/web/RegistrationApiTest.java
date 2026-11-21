@@ -1,6 +1,7 @@
 package ar.edu.um.cronos.adapters.in.web;
 
 import ar.edu.um.cronos.IntegrationTestSupport;
+import ar.edu.um.cronos.LogLevels;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -48,6 +49,7 @@ class RegistrationApiTest {
 
     @BeforeEach
     void limpiar() {
+        LogLevels.altos();
         jdbc.update("DELETE FROM user_authority");
         jdbc.update("DELETE FROM app_user");
     }
@@ -210,9 +212,10 @@ class RegistrationApiTest {
 
     @Test
     void soloElPostEstaAbierto() throws Exception {
-        mvc.perform(get("/api/register")).andExpect(status().isForbidden());
-        mvc.perform(get("/api/users")).andExpect(status().isForbidden());
+        // Sin token, una ruta no habilitada responde 401 (no autenticado), no 403.
+        mvc.perform(get("/api/register")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/users")).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/users").contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
     }
 }

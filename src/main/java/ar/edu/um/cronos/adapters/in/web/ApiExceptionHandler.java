@@ -2,11 +2,13 @@ package ar.edu.um.cronos.adapters.in.web;
 
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
+import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.application.user.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -76,6 +78,16 @@ class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> credencialesInvalidas(HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .body(problem(HttpStatus.UNAUTHORIZED, "INVALID_CREDENTIALS", request));
+    }
+
+    /**
+     * Un token válido de un usuario que ya no existe o no está activo: la identidad que afirma ya no vale, así que
+     * es el mismo {@code 401 NO_AUTENTICADO} que el de seguridad.
+     */
+    @ExceptionHandler(AccountUnavailableException.class)
+    ResponseEntity<ProblemDetail> cuentaNoDisponible(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .body(problem(HttpStatus.UNAUTHORIZED, "NO_AUTENTICADO", request));
     }
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})

@@ -1,6 +1,7 @@
 package ar.edu.um.cronos.adapters.in.web;
 
 import ar.edu.um.cronos.IntegrationTestSupport;
+import ar.edu.um.cronos.LogLevels;
 import ar.edu.um.cronos.TestKeys;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +55,7 @@ class AuthenticationApiTest {
 
     @BeforeEach
     void limpiar() {
+        LogLevels.altos();
         jdbc.update("DELETE FROM user_authority");
         jdbc.update("DELETE FROM app_user");
     }
@@ -176,7 +178,9 @@ class AuthenticationApiTest {
 
     @Test
     void soloElPostEstaAbierto() throws Exception {
-        mvc.perform(get("/api/authenticate")).andExpect(status().isForbidden());
+        // Sin token, una ruta no habilitada responde 401 (no autenticado), no 403.
+        mvc.perform(get("/api/authenticate")).andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("NO_AUTENTICADO"));
     }
 
     @Test
