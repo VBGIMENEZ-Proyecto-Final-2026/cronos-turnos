@@ -17,6 +17,7 @@ import ar.edu.um.cronos.domain.Reservation;
 import ar.edu.um.cronos.domain.ReservationStatus;
 import ar.edu.um.cronos.domain.Slot;
 import ar.edu.um.cronos.domain.User;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -98,6 +99,8 @@ public class StartReservation {
             // Su vencimiento ya pasó (la cátedra lo dio por vencido aunque cronos todavía no se enteró por Kafka): se
             // cierra y se puede volver a pedir el turno, en lugar de devolver un proceso que ya no existe.
             reservations.save(existing.get().expired(now()));
+            LogEvent.info(log, "reserva.proceso.vencido_local", "usuario", user.id(), "reserva", existing.get().id(),
+                    "proceso", existing.get().reservationProcessId(), "accion", "se_empieza_uno_nuevo");
         }
 
         ProfessionalAgenda agenda = catalog.findAgenda(command.professionalId(), command.userToken());
@@ -114,9 +117,14 @@ public class StartReservation {
                     command.startTime()).orElseThrow(ReservationInProgressException::new), patientId);
         }
 
+        LogEvent.info(log, "reserva.proceso.iniciado", "usuario", user.id(), "reserva", starting.id(),
+                "profesional", starting.professionalId(), "fecha", starting.date(), "hora", starting.startTime());
+
         HoldCreated hold = requestHold(starting, patientId);
         Reservation held = reservations.save(starting.held(hold.holdId(), hold.reservationProcessId(),
                 hold.expiresAt(), now()));
+        LogEvent.info(log, "reserva.hold.creado", "usuario", user.id(), "reserva", held.id(),
+                "proceso", held.reservationProcessId(), "hold", held.holdId(), "vence", held.expiresAt());
         return confirm(held, patientId);
     }
 
@@ -141,11 +149,25 @@ public class StartReservation {
     private Reservation resume(Reservation existing, String patientId) {
         return switch (existing.status()) {
             // Otro pedido lo está procesando ahora mismo (o quedó cortado antes del hold): no se pisa.
-            case STARTING -> throw new ReservationInProgressException();
+            case STARTING -> {
+                LogEvent.warn(log, "reserva.pedido.repetido", "usuario", existing.userId(), "reserva", existing.id(),
+                        "estado", existing.status(), "accion", "rechazado_409_sigue_en_curso");
+                throw new ReservationInProgressException();
+            }
             // Quedó creado el hold pero no se supo si se confirmó: se retoma la confirmación.
-            case HELD -> confirm(existing, patientId);
+            case HELD -> {
+                LogEvent.info(log, "reserva.pedido.repetido", "usuario", existing.userId(), "reserva", existing.id(),
+                        "proceso", existing.reservationProcessId(), "estado", existing.status(),
+                        "accion", "se_retoma_la_confirmacion");
+                yield confirm(existing, patientId);
+            }
             // Ya avanzó: se devuelve tal cual.
-            default -> existing;
+            default -> {
+                LogEvent.info(log, "reserva.pedido.repetido", "usuario", existing.userId(), "reserva", existing.id(),
+                        "proceso", existing.reservationProcessId(), "estado", existing.status(),
+                        "accion", "se_devuelve_el_existente");
+                yield existing;
+            }
         };
     }
 
@@ -164,11 +186,16 @@ public class StartReservation {
             return holds.createHold(starting.professionalId(), starting.date(), starting.startTime(), patientId);
         } catch (CatedraRejectedException e) {
             reservations.save(starting.failed(e.failure().name(), now()));
+            LogEvent.info(log, "reserva.proceso.fallido", "usuario", starting.userId(), "reserva", starting.id(),
+                    "etapa", "hold", "motivo", e.failure(), "accion", "proceso_cerrado");
             throw e;
         } catch (CatedraUnavailableException e) {
             // No se sabe si el hold existe. Se cierra el proceso para no dejarlo colgado; si el hold se creó, vence
             // solo y reaparece como ocupado en la disponibilidad hasta entonces.
             reservations.save(starting.failed("CATEDRA_UNAVAILABLE", now()));
+            LogEvent.warn(log, "reserva.proceso.fallido", "usuario", starting.userId(), "reserva", starting.id(),
+                    "etapa", "hold", "motivo", "CATEDRA_UNAVAILABLE", "accion", "proceso_cerrado",
+                    "nota", "el_hold_puede_existir_y_vence_solo");
             throw e;
         }
     }
@@ -182,25 +209,38 @@ public class StartReservation {
             } catch (CatedraRejectedException e) {
                 if (e.failure() == CatedraFailure.RESERVATION_PROCESS_ALREADY_CONFIRMED) {
                     // Una confirmación anterior sí llegó: repetirla no cambia nada.
+                    LogEvent.info(log, "reserva.confirmacion.ya_aplicada", "usuario", held.userId(),
+                            "reserva", held.id(), "proceso", held.reservationProcessId());
                     confirmed = new HoldConfirmed(held.reservationProcessId(), null);
                 } else if (e.failure().holdIsGone()) {
                     reservations.save(held.expired(now()));
+                    LogEvent.info(log, "reserva.proceso.vencido", "usuario", held.userId(), "reserva", held.id(),
+                            "proceso", held.reservationProcessId(), "etapa", "confirmacion", "motivo", e.failure(),
+                            "accion", "proceso_cerrado");
                     throw e;
                 } else {
                     reservations.save(held.failed(e.failure().name(), now()));
+                    LogEvent.info(log, "reserva.proceso.fallido", "usuario", held.userId(), "reserva", held.id(),
+                            "proceso", held.reservationProcessId(), "etapa", "confirmacion", "motivo", e.failure(),
+                            "accion", "proceso_cerrado");
                     throw e;
                 }
             } catch (CatedraUnavailableException e) {
                 if (attempt >= CONFIRM_ATTEMPTS) {
                     // Sigue sin saberse: se deja en HELD y repetir el pedido retoma desde acá.
-                    log.warn("No se pudo confirmar el hold del proceso {}: la cátedra no responde",
-                            held.reservationProcessId());
+                    LogEvent.warn(log, "reserva.confirmacion.incierta", "usuario", held.userId(),
+                            "reserva", held.id(), "proceso", held.reservationProcessId(), "intentos", attempt,
+                            "accion", "queda_en_HELD_repetir_el_pedido_la_retoma");
                     throw e;
                 }
-                log.info("Reconciliando la confirmación del proceso {} (intento {})", held.reservationProcessId(),
-                        attempt + 1);
+                LogEvent.info(log, "reserva.confirmacion.reconciliando", "usuario", held.userId(),
+                        "reserva", held.id(), "proceso", held.reservationProcessId(), "intento", attempt + 1);
             }
         }
-        return reservations.save(held.waitingForPhone(confirmed.expiresAt(), now()));
+        Reservation waiting = reservations.save(held.waitingForPhone(confirmed.expiresAt(), now()));
+        LogEvent.info(log, "reserva.hold.confirmado", "usuario", waiting.userId(), "reserva", waiting.id(),
+                "proceso", waiting.reservationProcessId(), "estado", waiting.status(), "vence", waiting.expiresAt(),
+                "siguiente", "espera_el_telefono");
+        return waiting;
     }
 }

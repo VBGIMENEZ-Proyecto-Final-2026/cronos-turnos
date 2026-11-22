@@ -215,4 +215,18 @@ Valida el turno contra atlas (el profesional existe, está habilitado y el turno
 - El nombre del paciente es un dato personal: ninguna clase de cronos lo escribe en un log. Con `TRACE` en `org.hibernate` o en `org.postgresql`, Hibernate y el driver escriben los valores que enlazan al SQL (incluido el nombre); no se activa fuera del desarrollo.
 - Los datos del profesional guardados con la reserva son una foto de cuando se reservó, no el catálogo vigente.
 
+## Logs
+
+Cada línea que informa algo es un **evento**: un código estable y pares `clave=valor` (norma completa y catálogo de eventos en el [ADR 0006](../../biblioteca/biblioteca-alejandria-/alejandria-docs/arquitectura/adr/0006-norma-de-logs.md) de la biblioteca).
+
+```
+2026-11-22T12:03:47.905-03:00  INFO 379219 --- [cronos-turnos] [    Test worker] [86927b6b6ef0] a.e.u.c.a.reservation.StartReservation   : evento=reserva.hold.confirmado usuario=3 reserva=2 proceso=process-a92b47d0 estado=WAITING_FOR_PHONE vence=2030-01-01T10:01:00Z siguiente=espera_el_telefono
+```
+
+- **Seguir un pedido:** cada pedido lleva un `requestId` (el tercer corchete de la consola, vacío fuera de un pedido). Se devuelve en el encabezado `X-Request-Id`; si el cliente manda uno seguro (`[A-Za-z0-9._-]`, de 8 a 64 caracteres) se reutiliza. `grep 86927b6b6ef0` muestra todo lo que pasó en ese pedido.
+- **Buscar un tipo de evento:** `grep 'evento=reserva.proceso.fallido'`, o por dominio: `grep 'evento=catedra\.'`.
+- **Niveles:** `ERROR` = un bug o algo que exige intervenir (único con traza); `WARN` = una falla esperable que se manejó (la cátedra no responde); `INFO` = un hito de negocio y el cierre de cada pedido (`http.pedido.resuelto` con estado y `ms`); `DEBUG` = detalle técnico.
+- **Qué nunca se escribe:** tokens, contraseñas, teléfono, nombres, el nombre de usuario, la dirección y el `groupId` de la cátedra. Solo ids. Lo vigilan `ArquitecturaTest` (nadie llama a `log.info/warn/error` directo) y `NormaDeLogsTest`.
+- Para escribir un evento nuevo: `LogEvent.info(log, "dominio.accion", "usuario", id, "reserva", reservaId)`.
+
 Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, Kafka (información adicional y resultado final), consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas.

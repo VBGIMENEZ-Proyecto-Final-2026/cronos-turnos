@@ -4,6 +4,7 @@ import ar.edu.um.cronos.application.port.out.CatedraFailure;
 import ar.edu.um.cronos.application.port.out.CatedraRejectedException;
 import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.HoldGateway;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -49,7 +50,7 @@ public class CatedraHoldClient implements HoldGateway {
                             externalPatientId))
                     .retrieve().body(HoldCreatedJson.class);
         } catch (RestClientException e) {
-            throw translate(e, "crear el hold");
+            throw translate(e, "crear_hold", "crear el hold");
         }
         if (response == null || blank(response.holdId()) || blank(response.reservationProcessId())) {
             throw new CatedraUnavailableException("La cátedra respondió un hold inválido", null);
@@ -67,7 +68,7 @@ public class CatedraHoldClient implements HoldGateway {
                     .body(new ConfirmHoldJson(externalPatientId, patientFirstName, patientLastName))
                     .retrieve().body(HoldConfirmedJson.class);
         } catch (RestClientException e) {
-            throw translate(e, "confirmar el hold");
+            throw translate(e, "confirmar_hold", "confirmar el hold");
         }
         if (response == null || blank(response.reservationProcessId())) {
             throw new CatedraUnavailableException("La cátedra respondió una confirmación inválida", null);
@@ -75,7 +76,11 @@ public class CatedraHoldClient implements HoldGateway {
         return new HoldConfirmed(response.reservationProcessId(), response.expiresAt());
     }
 
-    private RuntimeException translate(RestClientException e, String operation) {
+    /**
+     * @param operationCode el nombre de la operación para el log (se busca con grep)
+     * @param operation     la misma operación en palabras, para el mensaje de la excepción
+     */
+    private RuntimeException translate(RestClientException e, String operationCode, String operation) {
         if (e instanceof RestClientResponseException response) {
             int status = response.getStatusCode().value();
             String code = RestFailures.codeOf(response);
@@ -86,20 +91,24 @@ public class CatedraHoldClient implements HoldGateway {
                     || (status == 403 && failure != CatedraFailure.HOLD_OWNER_MISMATCH);
             if (unknownOutcome) {
                 if (status == 401 || status == 403) {
-                    log.warn("La cátedra rechazó la credencial técnica (HTTP {}, code={}) al {}: el token es "
-                            + "inválido o venció; se rota en el .env", status, code, operation);
+                    LogEvent.warn(log, "catedra.credencial.rechazada", "operacion", operationCode, "estado", status,
+                            "codigo", code, "accion", "rotar_token_en_env");
                 } else {
-                    log.warn("La cátedra respondió HTTP {} (code={}) al {}", status, code, operation);
+                    LogEvent.warn(log, "catedra.llamada.fallida", "operacion", operationCode, "estado", status,
+                            "codigo", code, "resultado", "se_desconoce_si_se_aplico");
                 }
                 return new CatedraUnavailableException("La cátedra respondió HTTP " + status, response);
             }
-            log.info("La cátedra rechazó {}: HTTP {} (code={})", operation, status, code);
+            LogEvent.info(log, "catedra.operacion.rechazada", "operacion", operationCode, "estado", status,
+                    "codigo", code, "motivo", failure);
             return new CatedraRejectedException(failure, response);
         }
         if (e instanceof ResourceAccessException) {
-            log.warn("No se pudo hablar con la cátedra al {}: {}", operation, e.getClass().getSimpleName());
+            LogEvent.warn(log, "catedra.llamada.sin_respuesta", "operacion", operationCode,
+                    "motivo", e.getClass().getSimpleName(), "resultado", "se_desconoce_si_se_aplico");
         } else {
-            log.warn("La respuesta de la cátedra al {} no se pudo interpretar", operation);
+            LogEvent.warn(log, "catedra.respuesta.ilegible", "operacion", operationCode,
+                    "resultado", "se_desconoce_si_se_aplico");
         }
         return new CatedraUnavailableException("No se sabe qué pasó al " + operation, e);
     }

@@ -431,8 +431,10 @@ class AvailabilityApiTest {
             disponibilidad(token, LUNES).andExpect(status().isServiceUnavailable());
 
             assertThat(log.events()).as("tiene que haber algo que mirar").isPositive();
-            assertThat(log.text()).contains("El catálogo no está disponible")
-                    .contains("La cátedra no está disponible")
+            assertThat(log.text())
+                    .contains("evento=catalogo.no_disponible metodo=GET ruta=/api/professionals/207/availability estado=503")
+                    .contains("evento=catedra.no_disponible metodo=GET ruta=/api/professionals/207/availability estado=503")
+                    .contains("evento=catedra.credencial.rechazada operacion=consultar_ocupaciones")
                     .doesNotContain(token).doesNotContain(TOKEN_TECNICO);
         }
     }

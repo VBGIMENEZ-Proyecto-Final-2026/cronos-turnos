@@ -4,6 +4,7 @@ import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.OccupancyClient;
 import ar.edu.um.cronos.domain.Occupancy;
 import ar.edu.um.cronos.domain.OccupancyStatus;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.retry.RetryException;
@@ -60,20 +61,23 @@ public class CatedraOccupancyClient implements OccupancyClient {
             int status = e.getStatusCode().value();
             String code = RestFailures.codeOf(e);
             if (status == 401 || status == 403) {
-                log.warn("La cátedra rechazó la credencial técnica (HTTP {}, code={}): el token es inválido o "
-                        + "venció; se rota en el .env", status, code);
+                LogEvent.warn(log, "catedra.credencial.rechazada", "operacion", "consultar_ocupaciones",
+                        "profesional", professionalId, "estado", status, "codigo", code,
+                        "accion", "rotar_token_en_env");
             } else {
-                log.warn("La cátedra respondió HTTP {} (code={}) al pedir las ocupaciones del profesional {}",
-                        status, code, professionalId);
+                LogEvent.warn(log, "catedra.llamada.fallida", "operacion", "consultar_ocupaciones",
+                        "profesional", professionalId, "estado", status, "codigo", code);
             }
             return new CatedraUnavailableException("La cátedra respondió HTTP " + status, e);
         }
         if (t instanceof ResourceAccessException e) {
-            log.warn("No se pudo conectar con la cátedra al pedir las ocupaciones: {}", e.getClass().getSimpleName());
+            LogEvent.warn(log, "catedra.llamada.sin_respuesta", "operacion", "consultar_ocupaciones",
+                    "profesional", professionalId, "motivo", e.getClass().getSimpleName());
             return new CatedraUnavailableException("La cátedra no está disponible (error de red o timeout)", e);
         }
         if (t instanceof RestClientException e) {
-            log.warn("La respuesta de la cátedra a las ocupaciones no se pudo interpretar");
+            LogEvent.warn(log, "catedra.respuesta.ilegible", "operacion", "consultar_ocupaciones",
+                    "profesional", professionalId);
             return new CatedraUnavailableException("La respuesta de la cátedra no se pudo interpretar", e);
         }
         throw new IllegalStateException("Falla inesperada al pedir las ocupaciones a la cátedra", t);

@@ -5,6 +5,9 @@ import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.PasswordHasher;
 import ar.edu.um.cronos.application.port.out.UserRepository;
 import ar.edu.um.cronos.domain.User;
+import ar.edu.um.cronos.logging.LogEvent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 
@@ -15,6 +18,8 @@ import java.time.Clock;
  * misma excepción.
  */
 public class RegisterUser {
+
+    private static final Logger log = LoggerFactory.getLogger(RegisterUser.class);
 
     private final UserRepository users;
     private final PasswordHasher hasher;
@@ -30,13 +35,17 @@ public class RegisterUser {
         String login = User.normalize(command.login());
         String email = User.normalize(command.email());
         if (users.existsByLogin(login)) {
+            LogEvent.info(log, "usuario.registro.rechazado", "motivo", "login_en_uso");
             throw new LoginAlreadyUsedException();
         }
         if (email != null && users.existsByEmail(email)) {
+            LogEvent.info(log, "usuario.registro.rechazado", "motivo", "email_en_uso");
             throw new EmailAlreadyUsedException();
         }
         User user = User.register(login, hasher.hash(command.password()), command.firstName(), command.lastName(),
                 email, command.imageUrl(), command.langKey(), clock.instant());
-        return users.save(user);
+        User saved = users.save(user);
+        LogEvent.info(log, "usuario.registrado", "usuario", saved.id());
+        return saved;
     }
 }

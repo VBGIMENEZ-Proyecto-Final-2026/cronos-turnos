@@ -156,7 +156,9 @@ class SecurityConfig {
             CorsConfiguration configuration = new CorsConfiguration();
             configuration.setAllowedOrigins(cors.allowedOrigins());
             configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-            configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept"));
+            configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "Accept", "X-Request-Id"));
+            // Para que un cliente web pueda leer el identificador del pedido y citarlo al reportar un error.
+            configuration.setExposedHeaders(List.of("X-Request-Id"));
             configuration.setAllowCredentials(false);
             configuration.setMaxAge(cors.maxAge());
             source.registerCorsConfiguration("/**", configuration);

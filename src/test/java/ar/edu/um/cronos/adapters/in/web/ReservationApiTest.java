@@ -543,6 +543,82 @@ class ReservationApiTest {
         reservar(token).andExpect(status().isAccepted()).andExpect(jsonPath("$.status").value("WAITING_FOR_PHONE"));
     }
 
+    // ---- los eventos del log (norma de logs, ADR 0006) --------------------------------------------------------
+
+    @Test
+    void elCaminoFelizDejaUnaLineaPorHitoEnOrdenYTodasConElMismoRequestId() throws Exception {
+        String token = tokenDe("ana");
+        CATEDRA.reply(Reply.json(201, HOLD), Reply.json(202, CONFIRMADO));
+        try (var log = new LogCapture()) {
+            reservar(token).andExpect(status().isAccepted());
+
+            var lineas = log.list().stream().map(e -> e.getFormattedMessage())
+                    .filter(m -> m.startsWith("evento=reserva.") || m.startsWith("evento=http.pedido")).toList();
+            assertThat(lineas).hasSize(4);
+            assertThat(lineas.get(0)).startsWith("evento=reserva.proceso.iniciado usuario=" + idDe("ana") + " reserva=")
+                    .contains("profesional=218 fecha=" + MARTES + " hora=14:30");
+            assertThat(lineas.get(1)).startsWith("evento=reserva.hold.creado usuario=" + idDe("ana") + " reserva=")
+                    .contains("proceso=process-a92b47d0 hold=hold-6c0c2f41");
+            assertThat(lineas.get(2)).startsWith("evento=reserva.hold.confirmado usuario=" + idDe("ana"))
+                    .contains("proceso=process-a92b47d0 estado=WAITING_FOR_PHONE")
+                    .contains("siguiente=espera_el_telefono");
+            assertThat(lineas.get(3)).startsWith("evento=http.pedido.resuelto metodo=POST ruta=/api/reservations estado=202");
+            // Todas las líneas del pedido comparten el identificador, así se las sigue juntas.
+            var ids = log.list().stream().filter(e -> e.getFormattedMessage().startsWith("evento=reserva."))
+                    .map(e -> e.getMDCPropertyMap().get("requestId")).distinct().toList();
+            assertThat(ids).hasSize(1).doesNotContainNull();
+            // Ni el paciente ni la cátedra: solo ids. (Lo que escriben Spring o el driver con todo en TRACE no es de
+            // cronos y es un límite documentado; la norma controla lo que escribe cronos.)
+            assertThat(log.list().stream().filter(e -> e.getLoggerName().startsWith("ar.edu.um.cronos"))
+                    .map(e -> e.getFormattedMessage()).toList()).isNotEmpty()
+                    .noneMatch(m -> m.contains("Juan") || m.contains("Pérez"));
+        }
+    }
+
+    @Test
+    void unHoldRechazadoSeRegistraConSuEtapaYSuMotivo() throws Exception {
+        String token = tokenDe("ana");
+        CATEDRA.reply(Reply.problem(409, "SLOT_ALREADY_HELD"));
+        try (var log = new LogCapture()) {
+            reservar(token).andExpect(status().isConflict());
+
+            assertThat(log.eventos("reserva.proceso.fallido")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("etapa=hold motivo=SLOT_ALREADY_HELD")
+                            .contains("accion=proceso_cerrado"));
+            assertThat(log.eventos("catedra.operacion.rechazada")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("operacion=crear_hold estado=409"));
+        }
+    }
+
+    @Test
+    void siNoSeSabeSiConfirmoSeRegistraLaReconciliacionYLaIncertidumbre() throws Exception {
+        String token = tokenDe("ana");
+        CATEDRA.reply(Reply.json(201, HOLD), Reply.problem(503, "X"), Reply.problem(503, "X"));
+        try (var log = new LogCapture()) {
+            reservar(token).andExpect(status().isServiceUnavailable());
+
+            assertThat(log.eventos("reserva.confirmacion.reconciliando")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("proceso=process-a92b47d0 intento=2"));
+            assertThat(log.eventos("reserva.confirmacion.incierta")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("intentos=2")
+                            .contains("accion=queda_en_HELD_repetir_el_pedido_la_retoma"));
+        }
+    }
+
+    @Test
+    void repetirUnPedidoSeRegistraConLoQueSeHizo() throws Exception {
+        String token = tokenDe("ana");
+        CATEDRA.reply(Reply.json(201, HOLD), Reply.json(202, CONFIRMADO));
+        reservar(token).andExpect(status().isAccepted());
+        try (var log = new LogCapture()) {
+            reservar(token).andExpect(status().isAccepted());
+
+            assertThat(log.eventos("reserva.pedido.repetido")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("estado=WAITING_FOR_PHONE")
+                            .contains("accion=se_devuelve_el_existente"));
+        }
+    }
+
     // ---- secretos y datos personales ------------------------------------------------------------------------
 
     @Test

@@ -5,6 +5,7 @@ import ar.edu.um.cronos.application.port.out.CatalogUnavailableException;
 import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
 import ar.edu.um.cronos.domain.ProfessionalAgenda;
 import ar.edu.um.cronos.domain.WeeklySchedule;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.retry.RetryException;
@@ -62,17 +63,19 @@ public class AtlasCatalogClient implements CatalogClient {
             String code = RestFailures.codeOf(e);
             // 401 o 403: atlas no acepta el token que cronos acaba de validar. Es un problema de configuración
             // (las claves no coinciden), no del usuario: para el cliente, el catálogo no está utilizable.
-            log.warn("Atlas respondió HTTP {} (code={}) al pedir la agenda del profesional {}", status, code,
-                    professionalId);
+            LogEvent.warn(log, "atlas.llamada.fallida", "operacion", "consultar_agenda", "profesional", professionalId,
+                    "estado", status, "codigo", code,
+                    "accion", status == 401 || status == 403 ? "revisar_claves_jwt_de_atlas_y_cronos" : "-");
             return new CatalogUnavailableException("El catálogo respondió HTTP " + status, e);
         }
         if (t instanceof ResourceAccessException e) {
-            log.warn("No se pudo conectar con atlas al pedir la agenda del profesional {}: {}", professionalId,
-                    e.getClass().getSimpleName());
+            LogEvent.warn(log, "atlas.llamada.sin_respuesta", "operacion", "consultar_agenda",
+                    "profesional", professionalId, "motivo", e.getClass().getSimpleName());
             return new CatalogUnavailableException("El catálogo no está disponible (error de red o timeout)", e);
         }
         if (t instanceof RestClientException e) {
-            log.warn("La respuesta de atlas para el profesional {} no se pudo interpretar", professionalId);
+            LogEvent.warn(log, "atlas.respuesta.ilegible", "operacion", "consultar_agenda",
+                    "profesional", professionalId);
             return new CatalogUnavailableException("La respuesta del catálogo no se pudo interpretar", e);
         }
         throw new IllegalStateException("Falla inesperada al pedir la agenda a atlas", t);
