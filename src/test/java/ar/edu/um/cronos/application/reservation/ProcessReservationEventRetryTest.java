@@ -59,6 +59,12 @@ class ProcessReservationEventRetryTest {
         }
 
         @Override
+        public ar.edu.um.cronos.application.port.out.ReservationPage findByUser(long userId, ReservationStatus status,
+                                                                               int page, int size) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public Optional<Reservation> findByReservationProcessId(String id) {
             return Optional.ofNullable(stored).filter(r -> id.equals(r.reservationProcessId()));
         }

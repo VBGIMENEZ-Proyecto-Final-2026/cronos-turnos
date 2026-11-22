@@ -198,7 +198,10 @@ class ReservationApiTest {
                 .getContentAsString();
 
         assertThat(cuerpo).doesNotContain("hold-6c0c2f41", "process-a92b47d0", "holdId", "reservationProcessId",
-                "userId", "user_id", "failureCode");
+                "userId", "user_id", "requestEventId", "catedraReservationId");
+        // Sí se devuelven los motivos (códigos estables, nunca un texto de la cátedra): el usuario necesita saber por qué un
+        // proceso falló o por qué se rechazó su teléfono. Vienen vacíos mientras todo va bien.
+        assertThat(cuerpo).contains("\"failureCode\":null").contains("\"lastRejectionReason\":null");
     }
 
     @Test
@@ -371,11 +374,17 @@ class ReservationApiTest {
     }
 
     @Test
-    void soloSePermitePostYNoHayListadoTodavia() throws Exception {
+    void soloSePermitenPostYGetEnLaRutaDeReservas() throws Exception {
         String token = tokenDe("ana");
 
+        for (var pedido : new org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder[]{
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/reservations"),
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete("/api/reservations"),
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch("/api/reservations")}) {
+            mvc.perform(pedido.header(HttpHeaders.AUTHORIZATION, "Bearer " + token)).andExpect(status().isForbidden());
+        }
         mvc.perform(get("/api/reservations").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isOk());
     }
 
     // ---- lo que dice atlas -----------------------------------------------------------------------------------

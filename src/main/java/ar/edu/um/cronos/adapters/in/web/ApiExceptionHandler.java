@@ -11,6 +11,7 @@ import ar.edu.um.cronos.application.port.out.PhoneUnavailableException;
 import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
 import ar.edu.um.cronos.application.port.out.ReservationConflictException;
 import ar.edu.um.cronos.application.reservation.InvalidSlotException;
+import ar.edu.um.cronos.application.reservation.InvalidPageException;
 import ar.edu.um.cronos.application.reservation.PhoneAlreadySubmittedException;
 import ar.edu.um.cronos.application.reservation.PhoneNotRequestedException;
 import ar.edu.um.cronos.application.reservation.ProfessionalDisabledException;
@@ -173,6 +174,17 @@ class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> reservaEnCurso(ReservationInProgressException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(problem(HttpStatus.CONFLICT, "RESERVATION_IN_PROGRESS", request));
+    }
+
+    /** Una página o un tamaño fuera de rango en el listado de reservas: se nombra el parámetro, no se repite el valor. */
+    @ExceptionHandler(InvalidPageException.class)
+    ResponseEntity<ProblemDetail> paginaInvalida(InvalidPageException e, HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", request);
+        problem.setTitle("Method argument not valid");
+        problem.setProperty("message", "error.validation");
+        problem.setProperty("fieldErrors", List.of(Map.of("objectName", "request", "field", e.parameter(),
+                "message", "out of range")));
+        return ResponseEntity.badRequest().body(problem);
     }
 
     // ---- el teléfono de una reserva: ningún mensaje repite el número recibido -----------------------------------------

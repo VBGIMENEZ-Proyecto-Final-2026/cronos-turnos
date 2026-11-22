@@ -110,6 +110,19 @@ class StartReservationTest {
         }
 
         @Override
+        public ar.edu.um.cronos.application.port.out.ReservationPage findByUser(long userId, ReservationStatus status,
+                                                                               int page, int size) {
+            var propias = rows.values().stream().filter(r -> r.userId() == userId)
+                    .filter(r -> status == null || r.status() == status)
+                    .sorted(java.util.Comparator.comparing(Reservation::createdAt).thenComparing(Reservation::id).reversed())
+                    .toList();
+            var desde = Math.min((long) page * size, propias.size());
+            var hasta = Math.min(desde + size, propias.size());
+            return new ar.edu.um.cronos.application.port.out.ReservationPage(
+                    propias.subList((int) desde, (int) hasta), propias.size(), page, size);
+        }
+
+        @Override
         public Optional<Reservation> findByReservationProcessId(String reservationProcessId) {
             return rows.values().stream().filter(r -> reservationProcessId.equals(r.reservationProcessId()))
                     .findFirst();

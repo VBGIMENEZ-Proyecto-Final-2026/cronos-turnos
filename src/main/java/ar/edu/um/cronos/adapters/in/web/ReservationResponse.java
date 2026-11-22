@@ -11,7 +11,9 @@ import java.time.LocalTime;
  * Un proceso de reserva tal como lo ve su dueño. No expone cómo lo conoce la cátedra ({@code holdId},
  * {@code reservationProcessId}) ni el usuario: son detalles internos. Los datos del profesional son los de cuando
  * se reservó, no el catálogo vigente. {@code phoneSubmitted} dice si ya se mandó el teléfono a la cátedra (el número no se
- * guarda ni se devuelve).
+ * guarda ni se devuelve). {@code lastRejectionReason} es el código con el que la cátedra rechazó el último teléfono (por ejemplo
+ * {@code INVALID_PHONE_NUMBER}): el proceso sigue esperando y se puede mandar otro. {@code failureCode} es el motivo de un
+ * proceso que terminó mal ({@code FAILED} o {@code INVALID}). Los dos son códigos estables, nunca un texto libre.
  */
 record ReservationResponse(
         long id,
@@ -26,11 +28,15 @@ record ReservationResponse(
         String patientLastName,
         Instant expiresAt,
         boolean phoneSubmitted,
-        Instant createdAt) {
+        String lastRejectionReason,
+        String failureCode,
+        Instant createdAt,
+        Instant updatedAt) {
 
     static ReservationResponse from(Reservation r) {
         return new ReservationResponse(r.id(), r.status(), r.professionalId(), r.professionalFirstName(),
                 r.professionalLastName(), r.date(), r.startTime(), r.endTime(), r.patientFirstName(),
-                r.patientLastName(), r.expiresAt(), r.phoneSubmittedAt() != null, r.createdAt());
+                r.patientLastName(), r.expiresAt(), r.phoneSubmittedAt() != null, r.lastRejectionReason(),
+                r.failureCode(), r.createdAt(), r.updatedAt());
     }
 }

@@ -234,6 +234,19 @@ La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, l
 docker exec cronos-db psql -U cronos -d cronos -c 'SELECT event_type, reason, count(*) FROM unmatched_event GROUP BY 1, 2;'
 ```
 
+### Mis reservas: `GET /api/reservations` y `GET /api/reservations/{id}` (requieren token)
+
+```bash
+curl -s "localhost:8081/api/reservations?status=CONFIRMED&page=0&size=20" -H "Authorization: Bearer $TOKEN"
+# {"items":[{"id":6,"status":"CONFIRMED",...}],"page":0,"size":20,"totalItems":1,"totalPages":1}
+curl -s localhost:8081/api/reservations/6 -H "Authorization: Bearer $TOKEN"
+```
+
+- **Solo las propias.** El dueño es el del token y no hay ningún parámetro para pedir las de otro. Una reserva ajena y una inexistente dan **exactamente el mismo `404 RESERVATION_NOT_FOUND`**.
+- El listado va **la más reciente primero**, se filtra por `status` (un estado válido) y se pagina: `page` desde 0, `size` de 1 a 100 (20 por defecto). Un parámetro fuera de rango da `400 VALIDATION_ERROR` y nombra el parámetro, sin repetir el valor.
+- **Lee solo la base de cronos**: responde aunque la cátedra o atlas estén caídos. El estado es el último que cronos conoce; el resultado final lo informa la cátedra por Kafka y se ve acá cuando llega.
+- Cada reserva trae `phoneSubmitted` (ya se mandó el teléfono), `lastRejectionReason` (el código con que la cátedra rechazó el último teléfono, por ejemplo `INVALID_PHONE_NUMBER`: el proceso sigue esperando y se puede mandar otro) y `failureCode` (el motivo de un proceso que terminó mal). Son códigos estables, nunca un texto de la cátedra. No se expone el `holdId`, el `reservationProcessId`, el usuario ni el teléfono.
+
 ### Responder el pedido de teléfono: `POST /api/reservations/{id}/phone` (requiere token)
 
 La cátedra pide un teléfono por Kafka después de confirmar el hold (enunciado, sección 7, pasos 4 y 5). El usuario lo informa y cronos lo manda.
@@ -265,4 +278,4 @@ Cada línea que informa algo es un **evento**: un código estable y pares `clave
 - **Qué nunca se escribe:** tokens, contraseñas, teléfono, nombres, el nombre de usuario, la dirección y el `groupId` de la cátedra. Solo ids. Lo vigilan `ArquitecturaTest` (nadie llama a `log.info/warn/error` directo) y `NormaDeLogsTest`.
 - Para escribir un evento nuevo: `LogEvent.info(log, "dominio.accion", "usuario", id, "reserva", reservaId)`.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").

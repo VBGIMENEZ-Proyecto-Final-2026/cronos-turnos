@@ -9,6 +9,8 @@ import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.application.port.out.TransactionRunner;
 import ar.edu.um.cronos.application.port.out.UnmatchedEvents;
 import ar.edu.um.cronos.application.port.out.UserRepository;
+import ar.edu.um.cronos.application.reservation.GetReservation;
+import ar.edu.um.cronos.application.reservation.ListReservations;
 import ar.edu.um.cronos.application.reservation.ProcessReservationEvent;
 import ar.edu.um.cronos.application.reservation.StartReservation;
 import ar.edu.um.cronos.application.reservation.SubmitPhone;
@@ -40,6 +42,16 @@ class ReservationConfig {
                                       ReservationRepository reservations, Clock clock,
                                       AvailabilityProperties availability) {
         return new StartReservation(users, catalog, holds, reservations, clock, availability.zone());
+    }
+
+    @Bean
+    GetReservation getReservation(UserRepository users, ReservationRepository reservations) {
+        return new GetReservation(users, reservations);
+    }
+
+    @Bean
+    ListReservations listReservations(UserRepository users, ReservationRepository reservations) {
+        return new ListReservations(users, reservations);
     }
 
     @Bean

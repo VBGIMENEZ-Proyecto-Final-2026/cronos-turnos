@@ -266,6 +266,54 @@ class JpaReservationRepositoryTest {
         assertThat(reservations.findById(liberado.id()).orElseThrow().phoneSubmittedAt()).isNull();
     }
 
+    // ---- las reservas de un usuario (V2 índice user_id, created_at DESC) -----------------------------------------
+
+    private Reservation propia(long userId, int dia, long segundos, ReservationStatus estado) {
+        var turno = new Slot(DIA.plusDays(dia), LocalTime.of(14, 30), LocalTime.of(15, 0));
+        var r = reservations.save(Reservation.start(userId, 218, "Romina", "Acosta", turno, "Juan", "Pérez",
+                T0.plusSeconds(segundos)));
+        if (estado == ReservationStatus.STARTING) {
+            return r;
+        }
+        r = reservations.save(r.held("hold-" + userId + "-" + dia, "process-" + userId + "-" + dia, VENCE, T0.plusSeconds(segundos)));
+        r = reservations.save(r.waitingForPhone(VENCE, T0.plusSeconds(segundos)));
+        return estado == ReservationStatus.WAITING_FOR_PHONE ? r
+                : reservations.save(r.confirmed(9000 + dia + userId, T0.plusSeconds(segundos)));
+    }
+
+    @Test
+    void findByUserDevuelveSoloLasDelUsuarioLaMasRecientePrimeroYAIgualFechaElIdMayor() {
+        var vieja = propia(ana, 1, 10, ReservationStatus.CONFIRMED);
+        var nueva = propia(ana, 2, 30, ReservationStatus.CONFIRMED);
+        var empate1 = propia(ana, 3, 20, ReservationStatus.CONFIRMED);
+        var empate2 = propia(ana, 4, 20, ReservationStatus.CONFIRMED);
+        var deBeto = propia(beto, 5, 40, ReservationStatus.CONFIRMED);
+
+        var pagina = reservations.findByUser(ana, null, 0, 20);
+
+        assertThat(pagina.items()).extracting(Reservation::id)
+                .containsExactly(nueva.id(), empate2.id(), empate1.id(), vieja.id()).doesNotContain(deBeto.id());
+        assertThat(pagina.totalItems()).isEqualTo(4);
+        assertThat(reservations.findByUser(beto, null, 0, 20).items()).extracting(Reservation::id).containsExactly(deBeto.id());
+    }
+
+    @Test
+    void findByUserFiltraPorEstadoYPaginaConElTotalCorrecto() {
+        for (int i = 0; i < 5; i++) {
+            propia(ana, i, i, ReservationStatus.CONFIRMED);
+        }
+        propia(ana, 9, 9, ReservationStatus.WAITING_FOR_PHONE);
+
+        assertThat(reservations.findByUser(ana, ReservationStatus.WAITING_FOR_PHONE, 0, 20).totalItems()).isEqualTo(1);
+        var confirmadas = reservations.findByUser(ana, ReservationStatus.CONFIRMED, 0, 2);
+        assertThat(confirmadas.items()).hasSize(2);
+        assertThat(confirmadas.totalItems()).isEqualTo(5);
+        assertThat(confirmadas.totalPages()).isEqualTo(3);
+        assertThat(reservations.findByUser(ana, ReservationStatus.CONFIRMED, 2, 2).items()).hasSize(1);
+        assertThat(reservations.findByUser(ana, ReservationStatus.CONFIRMED, 7, 2).items()).isEmpty();
+        assertThat(reservations.findByUser(ana, ReservationStatus.EXPIRED, 0, 20).items()).isEmpty();
+    }
+
     @Test
     void ningunaTablaTieneUnaColumnaDondeGuardarElNumeroDeTelefono() {
         // El teléfono es un dato personal: se manda a la cátedra y no se guarda (decisión D3 del plan de Kafka). Lo único que
