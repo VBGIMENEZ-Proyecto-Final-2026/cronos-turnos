@@ -241,4 +241,131 @@ class CatedraHoldClientTest {
             }
         }
     }
+
+    // ---- cancelar una reserva confirmada ----------------------------------------------------------------------
+
+    private static final String CANCELADA = "{\"reservationId\":8251,\"reservationProcessId\":\"process-a92b47d0\","
+            + "\"status\":\"CANCELLED\",\"cancelledAt\":\"2026-11-22T15:10:00Z\",\"campoNuevo\":true}";
+
+    @Test
+    void cancelaConElMotivoEnElCuerpoYLeeLaRespuestaIgnorandoLoQueNoConoce() throws Exception {
+        catedra.reply(Reply.json(200, CANCELADA));
+
+        var cancelada = cliente().cancel("process-a92b47d0", "Cambio solicitado por el usuario");
+
+        assertThat(cancelada.reservationId()).isEqualTo(8251);
+        assertThat(cancelada.cancelledAt()).isEqualTo(Instant.parse("2026-11-22T15:10:00Z"));
+        var pedido = catedra.requests().get(0);
+        assertThat(pedido.method()).isEqualTo("POST");
+        assertThat(pedido.uri()).isEqualTo("/api/appointments/process-a92b47d0/cancel");
+        assertThat(pedido.header("Authorization")).isEqualTo("Bearer " + TOKEN_TECNICO);
+        assertThat(pedido.header("Content-Type")).startsWith("application/json");
+        Map<String, Object> cuerpo = JSON.readValue(pedido.body(), Map.class);
+        assertThat(cuerpo).containsOnlyKeys("reason").containsEntry("reason", "Cambio solicitado por el usuario");
+    }
+
+    @Test
+    void sinMotivoNoMandaCuerpoPorqueLaReferenciaLoDejaOpcional() {
+        catedra.reply(Reply.json(200, CANCELADA));
+
+        cliente().cancel("process-a92b47d0", null);
+
+        var pedido = catedra.requests().get(0);
+        assertThat(pedido.uri()).isEqualTo("/api/appointments/process-a92b47d0/cancel");
+        assertThat(pedido.body() == null ? "" : pedido.body()).isEmpty();
+    }
+
+    @Test
+    void elIdentificadorDelProcesoSeCodificaEnLaRutaYNoPuedeCambiarElDestino() {
+        catedra.reply(Reply.json(200, "{\"reservationId\":1,\"reservationProcessId\":\"a/../../otra-cosa b\","
+                + "\"status\":\"CANCELLED\"}"));
+
+        cliente().cancel("a/../../otra-cosa b", null);
+
+        assertThat(catedra.requests().get(0).uri()).isEqualTo("/api/appointments/a%2F..%2F..%2Fotra-cosa%20b/cancel");
+    }
+
+    @Test
+    void cadaRechazoDeLaCancelacionSeTraduceASuMotivoSinRepetirNada() {
+        var casos = Map.of(
+                404, "RESERVATION_NOT_FOUND",
+                403, "RESERVATION_OWNER_MISMATCH",
+                409, "RESERVATION_NOT_CANCELLABLE",
+                400, "VALIDATION_ERROR");
+        for (var caso : casos.entrySet()) {
+            catedra.reset();
+            catedra.reply(Reply.problem(caso.getKey(), caso.getValue()));
+
+            assertThatThrownBy(() -> cliente().cancel("process-a92b47d0", null))
+                    .as("HTTP %d %s", caso.getKey(), caso.getValue())
+                    .isInstanceOfSatisfying(CatedraRejectedException.class, e ->
+                            assertThat(e.failure()).isEqualTo(CatedraFailure.valueOf(caso.getValue())));
+        }
+    }
+
+    @Test
+    void unErrorDeServidorUnaCredencialRechazadaOUnTimeoutNoSonUnRechazoSinoUnResultadoDesconocido() {
+        for (Reply respuesta : new Reply[]{Reply.problem(503, "X"), Reply.problem(500, "X"), Reply.problem(401, "X"),
+                Reply.problem(403, "STUDENT_INTEGRATION_NOT_FOUND"), Reply.problem(404, "RUTA_QUE_NO_ES")}) {
+            catedra.reset();
+            catedra.reply(respuesta);
+
+            if (respuesta.status() == 404) {
+                // Un 404 con un código que no es el de la matriz es un rechazo inesperado, no "no se sabe".
+                assertThatThrownBy(() -> cliente().cancel("p", null)).isInstanceOf(CatedraRejectedException.class);
+            } else {
+                assertThatThrownBy(() -> cliente().cancel("p", null)).as("HTTP %d", respuesta.status())
+                        .isInstanceOf(CatedraUnavailableException.class);
+            }
+        }
+    }
+
+    @Test
+    void unaRespuestaDeCancelacionInvalidaEsUnResultadoDesconocidoNoUnExito() {
+        for (String cuerpo : new String[]{"{}", "{\"reservationId\":8251,\"reservationProcessId\":\"process-a92b47d0\","
+                + "\"status\":\"CONFIRMED\"}", "{\"reservationProcessId\":\"process-a92b47d0\",\"status\":\"CANCELLED\"}",
+                "{\"reservationId\":8251,\"reservationProcessId\":\"otro-proceso\",\"status\":\"CANCELLED\"}", "no es json"}) {
+            catedra.reset();
+            catedra.reply(Reply.json(200, cuerpo));
+
+            assertThatThrownBy(() -> cliente().cancel("process-a92b47d0", null)).as(cuerpo)
+                    .isInstanceOf(CatedraUnavailableException.class);
+        }
+    }
+
+    @Test
+    void sinConexionNoSeSabeSiSeCancelo() throws Exception {
+        var cliente = cliente();
+        catedra.close();
+
+        assertThatThrownBy(() -> cliente.cancel("process-a92b47d0", null)).isInstanceOf(CatedraUnavailableException.class);
+    }
+
+    @Test
+    void laCancelacionNuncaSeReintentaPorSuCuenta() {
+        catedra.reply(Reply.problem(503, "X"), Reply.json(200, CANCELADA));
+
+        assertThatThrownBy(() -> cliente().cancel("process-a92b47d0", null)).isInstanceOf(CatedraUnavailableException.class);
+
+        assertThat(catedra.requests()).as("quien llama decide si repetir").hasSize(1);
+    }
+
+    @Test
+    void niElTokenNiElMotivoDelUsuarioAparecenEnLosLogsNiEnLosMensajes() {
+        var motivo = "Motivo con datos personales de Juan Pérez";
+        try (var log = new LogCapture()) {
+            catedra.reply(Reply.problem(409, "RESERVATION_NOT_CANCELLABLE"), Reply.problem(503, "X"));
+            Throwable rechazo = org.junit.jupiter.api.Assertions.assertThrows(CatedraRejectedException.class,
+                    () -> cliente().cancel("process-a92b47d0", motivo));
+            Throwable incierto = org.junit.jupiter.api.Assertions.assertThrows(CatedraUnavailableException.class,
+                    () -> cliente().cancel("process-a92b47d0", motivo));
+
+            assertThat(log.events()).isPositive();
+            // Con todo en TRACE Spring escribe los objetos que serializa ("Writing [CancelJson[...]]"): el toString no debe
+            // imprimir el motivo. Solo se excluye lo que escribe el cliente HTTP a nivel de cable, que es de la librería.
+            assertThat(log.textExcluding("org.apache.hc", "jdk.internal.net.http", "sun.net"))
+                    .doesNotContain(TOKEN_TECNICO).doesNotContain("Juan").doesNotContain("Pérez").doesNotContain("datos personales");
+            assertThat(rechazo.getMessage() + incierto.getMessage()).doesNotContain(TOKEN_TECNICO).doesNotContain("Juan");
+        }
+    }
 }

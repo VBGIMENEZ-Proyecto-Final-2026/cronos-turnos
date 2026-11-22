@@ -81,7 +81,7 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
                         .requestMatchers(HttpMethod.GET, "/api/reservations", "/api/reservations/*")
                         .hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
-                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/phone")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/phone", "/api/reservations/*/cancel")
                         .hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors

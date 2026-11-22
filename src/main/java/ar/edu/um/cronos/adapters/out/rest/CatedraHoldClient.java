@@ -4,6 +4,7 @@ import ar.edu.um.cronos.application.port.out.CatedraFailure;
 import ar.edu.um.cronos.application.port.out.CatedraRejectedException;
 import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.HoldGateway;
+import ar.edu.um.cronos.application.port.out.ReservationCancelGateway;
 import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +29,7 @@ import java.time.format.DateTimeFormatter;
  * ({@link CatedraUnavailableException}: sin respuesta, error de red o de servidor, credencial rechazada). Decide por
  * {@code status} y {@code code}, nunca por el texto de {@code detail}. Nunca registra el token.
  */
-public class CatedraHoldClient implements HoldGateway {
+public class CatedraHoldClient implements HoldGateway, ReservationCancelGateway {
 
     private static final Logger log = LoggerFactory.getLogger(CatedraHoldClient.class);
     private static final DateTimeFormatter HOUR_MINUTE = DateTimeFormatter.ofPattern("HH:mm");
@@ -77,6 +78,29 @@ public class CatedraHoldClient implements HoldGateway {
     }
 
     /**
+     * Cancela una reserva confirmada. Sin reintentos acá: quien llama decide, y repetirla es seguro porque la cancelación es
+     * idempotente en la cátedra. El motivo es texto libre del usuario: viaja en el cuerpo y no se escribe en ningún lado.
+     */
+    @Override
+    public Cancelled cancel(String reservationProcessId, String reason) {
+        CancelledJson response;
+        try {
+            var request = restClient.post().uri("/api/appointments/{reservationProcessId}/cancel", reservationProcessId)
+                    .contentType(MediaType.APPLICATION_JSON);
+            // El cuerpo es opcional (referencia 12): sin motivo no se manda.
+            response = (reason == null ? request : request.body(new CancelJson(reason)))
+                    .retrieve().body(CancelledJson.class);
+        } catch (RestClientException e) {
+            throw translate(e, "cancelar_reserva", "cancelar la reserva");
+        }
+        if (response == null || response.reservationId() == null || !"CANCELLED".equals(response.status())
+                || !reservationProcessId.equals(response.reservationProcessId())) {
+            throw new CatedraUnavailableException("La cátedra respondió una cancelación inválida", null);
+        }
+        return new Cancelled(response.reservationId(), response.cancelledAt());
+    }
+
+    /**
      * @param operationCode el nombre de la operación para el log (se busca con grep)
      * @param operation     la misma operación en palabras, para el mensaje de la excepción
      */
@@ -85,10 +109,11 @@ public class CatedraHoldClient implements HoldGateway {
             int status = response.getStatusCode().value();
             String code = RestFailures.codeOf(response);
             CatedraFailure failure = failureOf(code);
-            // 401, 5xx y un 403 que no es "el hold es de otro" son problemas de credencial o de servidor: no se sabe
-            // qué pasó con la operación.
+            // 401, 5xx y un 403 que no es "el hold (o la reserva) es de otra cuenta" son problemas de credencial o de
+            // servidor: no se sabe qué pasó con la operación.
             boolean unknownOutcome = status == 401 || status >= 500
-                    || (status == 403 && failure != CatedraFailure.HOLD_OWNER_MISMATCH);
+                    || (status == 403 && failure != CatedraFailure.HOLD_OWNER_MISMATCH
+                    && failure != CatedraFailure.RESERVATION_OWNER_MISMATCH);
             if (unknownOutcome) {
                 if (status == 401 || status == 403) {
                     LogEvent.warn(log, "catedra.credencial.rechazada", "operacion", operationCode, "estado", status,
@@ -131,6 +156,15 @@ public class CatedraHoldClient implements HoldGateway {
     private record CreateHoldJson(long professionalId, String date, String startTime, String externalPatientId) {
     }
 
+    /** El motivo es del usuario: no se imprime (Spring y el cliente HTTP escriben el cuerpo a nivel TRACE). */
+    private record CancelJson(String reason) {
+
+        @Override
+        public String toString() {
+            return "CancelJson[...]";
+        }
+    }
+
     private record ConfirmHoldJson(String externalPatientId, String patientFirstName, String patientLastName) {
 
         @Override
@@ -141,6 +175,9 @@ public class CatedraHoldClient implements HoldGateway {
 
     /** Parte del JSON de la cátedra que cronos usa; los campos que no conoce se ignoran. */
     record HoldCreatedJson(String holdId, String reservationProcessId, String status, Instant expiresAt) {
+    }
+
+    record CancelledJson(Long reservationId, String reservationProcessId, String status, Instant cancelledAt) {
     }
 
     record HoldConfirmedJson(String reservationProcessId, String status, Instant expiresAt) {

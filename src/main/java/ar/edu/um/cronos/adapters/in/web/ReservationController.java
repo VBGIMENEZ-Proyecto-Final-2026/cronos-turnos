@@ -1,5 +1,6 @@
 package ar.edu.um.cronos.adapters.in.web;
 
+import ar.edu.um.cronos.application.reservation.CancelReservation;
 import ar.edu.um.cronos.application.reservation.GetReservation;
 import ar.edu.um.cronos.application.reservation.ListReservations;
 import ar.edu.um.cronos.application.reservation.StartReservation;
@@ -32,9 +33,11 @@ class ReservationController {
     private final SubmitPhone submitPhone;
     private final GetReservation getReservation;
     private final ListReservations listReservations;
+    private final CancelReservation cancelReservation;
 
     ReservationController(StartReservation startReservation, SubmitPhone submitPhone, GetReservation getReservation,
-                          ListReservations listReservations) {
+                          ListReservations listReservations, CancelReservation cancelReservation) {
+        this.cancelReservation = cancelReservation;
         this.startReservation = startReservation;
         this.submitPhone = submitPhone;
         this.getReservation = getReservation;
@@ -72,6 +75,19 @@ class ReservationController {
     @GetMapping("/reservations/{id}")
     ReservationResponse get(@PathVariable long id, @AuthenticationPrincipal Jwt token) {
         return ReservationResponse.from(getReservation.execute(token.getSubject(), id));
+    }
+
+    /**
+     * Cancela una reserva propia confirmada (requisito 14). El cuerpo es opcional: {@code {"reason": "..."}} con hasta 500
+     * caracteres, que se manda a la cátedra y no se guarda ni se registra. Responde {@code 200} con la reserva ya cancelada.
+     * Es idempotente: cancelar una reserva ya cancelada la devuelve tal cual. Solo el dueño; para cualquier otro la reserva no
+     * existe.
+     */
+    @PostMapping("/reservations/{id}/cancel")
+    ReservationResponse cancel(@PathVariable long id, @RequestBody(required = false) CancelRequest request,
+                               @AuthenticationPrincipal Jwt token) {
+        return ReservationResponse.from(cancelReservation.execute(token.getSubject(), id,
+                request == null ? null : request.reason()));
     }
 
     /**

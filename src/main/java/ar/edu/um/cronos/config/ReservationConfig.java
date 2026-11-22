@@ -4,11 +4,13 @@ import ar.edu.um.cronos.adapters.out.rest.CatedraHoldClient;
 import ar.edu.um.cronos.application.port.out.CatalogClient;
 import ar.edu.um.cronos.application.port.out.HoldGateway;
 import ar.edu.um.cronos.application.port.out.PhoneGateway;
+import ar.edu.um.cronos.application.port.out.ReservationCancelGateway;
 import ar.edu.um.cronos.application.port.out.ProcessedEvents;
 import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.application.port.out.TransactionRunner;
 import ar.edu.um.cronos.application.port.out.UnmatchedEvents;
 import ar.edu.um.cronos.application.port.out.UserRepository;
+import ar.edu.um.cronos.application.reservation.CancelReservation;
 import ar.edu.um.cronos.application.reservation.GetReservation;
 import ar.edu.um.cronos.application.reservation.ListReservations;
 import ar.edu.um.cronos.application.reservation.ProcessReservationEvent;
@@ -29,7 +31,7 @@ import java.time.Clock;
 class ReservationConfig {
 
     @Bean
-    HoldGateway holdGateway(CatedraProperties catedra) {
+    CatedraHoldClient holdGateway(CatedraProperties catedra) {
         // Sin RetryTemplate: crear y confirmar un hold tienen efectos y no se repiten solos (referencia, 18.4).
         return new CatedraHoldClient(
                 HttpClientSupport.restClient(catedra.baseUrl(), catedra.connectTimeout(), catedra.readTimeout())
@@ -42,6 +44,13 @@ class ReservationConfig {
                                       ReservationRepository reservations, Clock clock,
                                       AvailabilityProperties availability) {
         return new StartReservation(users, catalog, holds, reservations, clock, availability.zone());
+    }
+
+    /** El mismo cliente de la cátedra, visto como el puerto de cancelación (comparten URL, token y timeouts). */
+    @Bean
+    CancelReservation cancelReservation(UserRepository users, ReservationRepository reservations,
+                                        ReservationCancelGateway catedra, Clock clock) {
+        return new CancelReservation(users, reservations, catedra, clock);
     }
 
     @Bean

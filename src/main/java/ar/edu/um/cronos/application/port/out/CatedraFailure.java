@@ -18,6 +18,10 @@ public enum CatedraFailure {
     EXTERNAL_PATIENT_MISMATCH,
     /** El proceso ya estaba confirmado inicialmente: repetir la confirmación no cambia nada. */
     RESERVATION_PROCESS_ALREADY_CONFIRMED,
+    // Cancelar (referencia 12 y 13.1)
+    RESERVATION_NOT_FOUND,
+    RESERVATION_OWNER_MISMATCH,
+    RESERVATION_NOT_CANCELLABLE,
     /** La cátedra rechazó el cuerpo (400): un error de cronos. */
     VALIDATION_ERROR,
     /** Cualquier otro rechazo que cronos no sabe interpretar. */
