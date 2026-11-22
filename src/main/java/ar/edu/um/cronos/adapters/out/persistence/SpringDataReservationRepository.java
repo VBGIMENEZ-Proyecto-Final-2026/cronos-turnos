@@ -10,6 +10,8 @@ import java.util.Optional;
 
 interface SpringDataReservationRepository extends JpaRepository<ReservationEntity, Long> {
 
+    Optional<ReservationEntity> findByReservationProcessId(String reservationProcessId);
+
     Optional<ReservationEntity> findFirstByUserIdAndProfessionalIdAndDateAndStartTimeAndStatusIn(
             long userId, long professionalId, LocalDate date, LocalTime startTime,
             Collection<ReservationStatus> statuses);

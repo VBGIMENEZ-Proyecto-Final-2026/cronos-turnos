@@ -98,13 +98,20 @@ class StartReservationTest {
         private static Reservation withIdAndVersion(Reservation r, long id, long version) {
             return new Reservation(id, r.userId(), r.reservationProcessId(), r.holdId(), r.professionalId(),
                     r.professionalFirstName(), r.professionalLastName(), r.date(), r.startTime(), r.endTime(),
-                    r.patientFirstName(), r.patientLastName(), r.status(), r.expiresAt(), r.failureCode(), version,
-                    r.createdAt(), r.updatedAt());
+                    r.patientFirstName(), r.patientLastName(), r.status(), r.expiresAt(), r.failureCode(),
+                    r.requestEventId(), r.lastRejectionReason(), r.catedraReservationId(), version, r.createdAt(),
+                    r.updatedAt());
         }
 
         @Override
         public Optional<Reservation> findById(long id) {
             return Optional.ofNullable(rows.get(id));
+        }
+
+        @Override
+        public Optional<Reservation> findByReservationProcessId(String reservationProcessId) {
+            return rows.values().stream().filter(r -> reservationProcessId.equals(r.reservationProcessId()))
+                    .findFirst();
         }
 
         @Override
@@ -465,6 +472,50 @@ class StartReservationTest {
 
     // ---- el mismo pedido dos veces --------------------------------------------------------------------------
 
+    // ---- la carrera con el consumidor de Kafka ----------------------------------------------------------------
+
+    @Test
+    void siElEventoDeLaCatedraLlegaEntreLaConfirmacionYElGuardadoNoHayErrorYSeConservaElPedidoDeTelefono() {
+        // La cátedra publica AdditionalInformationRequested apenas confirma: el consumidor lo guarda antes de que
+        // este pedido guarde su paso a WAITING_FOR_PHONE y le cambia la versión.
+        holds.onCall = () -> {
+            if (holds.count("confirmHold") == 1) {
+                reservations.save(reservations.rows.get(1L).informationRequested("request-event-1", AHORA.instant()));
+            }
+        };
+        try (var log = new ar.edu.um.cronos.LogCapture()) {
+            var r = caso.execute(pedido("ana"));
+
+            assertThat(r.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+            assertThat(r.requestEventId()).as("lo que guardó el consumidor no se pierde").isEqualTo("request-event-1");
+            assertThat(reservations.rows.get(r.id())).isEqualTo(r);
+            assertThat(reservations.historyOf(r.id())).containsExactly(ReservationStatus.STARTING,
+                    ReservationStatus.HELD, ReservationStatus.HELD, ReservationStatus.WAITING_FOR_PHONE);
+            assertThat(holds.count("confirmHold")).as("no se vuelve a llamar a la cátedra").isEqualTo(1);
+            assertThat(log.eventos("reserva.confirmacion.carrera")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("estado_actual=HELD")
+                            .contains("accion=se_reaplica_sobre_la_version_nueva"));
+        }
+    }
+
+    @Test
+    void siElEventoYaAdelantoElProcesoSeDevuelveTalCualEnLugarDePisarlo() {
+        holds.onCall = () -> {
+            if (holds.count("confirmHold") == 1) {
+                reservations.save(reservations.rows.get(1L).informationRequested("request-event-1", AHORA.instant())
+                        .waitingForPhone(VENCE, AHORA.instant()));
+            }
+        };
+
+        var r = caso.execute(pedido("ana"));
+
+        assertThat(r.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(r.expiresAt()).as("el que ya había guardado el consumidor").isEqualTo(VENCE);
+        assertThat(r.requestEventId()).isEqualTo("request-event-1");
+        assertThat(reservations.historyOf(r.id())).containsExactly(ReservationStatus.STARTING,
+                ReservationStatus.HELD, ReservationStatus.WAITING_FOR_PHONE);
+    }
+
     @Test
     void elMismoPedidoDosVecesNoCreaDosHoldsYDevuelveElMismoProceso() {
         var primero = caso.execute(pedido("ana"));
@@ -543,7 +594,7 @@ class StartReservationTest {
         var conEstado = switch (estado) {
             case HELD -> held;
             case WAITING_FOR_PHONE -> held.waitingForPhone(vence, AHORA.instant());
-            case CONFIRMED -> held.waitingForPhone(vence, AHORA.instant()).moveTo(ReservationStatus.CONFIRMED,
+            case CONFIRMED -> held.waitingForPhone(vence, AHORA.instant()).confirmed(8251,
                     AHORA.instant());
             default -> throw new IllegalArgumentException();
         };

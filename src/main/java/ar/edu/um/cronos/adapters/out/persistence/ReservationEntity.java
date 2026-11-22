@@ -71,6 +71,15 @@ class ReservationEntity {
     @Column(name = "failure_code")
     private String failureCode;
 
+    @Column(name = "request_event_id")
+    private String requestEventId;
+
+    @Column(name = "last_rejection_reason")
+    private String lastRejectionReason;
+
+    @Column(name = "catedra_reservation_id")
+    private Long catedraReservationId;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -102,6 +111,9 @@ class ReservationEntity {
         e.status = r.status();
         e.expiresAt = r.expiresAt();
         e.failureCode = r.failureCode();
+        e.requestEventId = r.requestEventId();
+        e.lastRejectionReason = r.lastRejectionReason();
+        e.catedraReservationId = r.catedraReservationId();
         e.version = r.version();
         e.createdAt = r.createdAt();
         e.updatedAt = r.updatedAt();
@@ -111,6 +123,6 @@ class ReservationEntity {
     Reservation toDomain() {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                failureCode, version, createdAt, updatedAt);
+                failureCode, requestEventId, lastRejectionReason, catedraReservationId, version, createdAt, updatedAt);
     }
 }

@@ -24,10 +24,13 @@ class NormaDeLogsTest {
     private static final Pattern CALL = Pattern.compile(
             "LogEvent\\.(?:info|warn|error)\\(\\s*log,\\s*(?:\"([^\"]*)\")?([^;]*);");
     private static final Pattern CODE = Pattern.compile("[a-z][a-z_]*(\\.[a-z][a-z_]*){1,3}");
-    /** Lo que nunca va a un log: contraseñas, teléfono, nombres del paciente o del usuario, tokens y groupId. */
+    /**
+     * Lo que nunca va a un log: contraseñas, teléfono, nombres del paciente o del usuario, tokens y groupId, y todo lo que lo
+     * contiene: el nombre de un topic o de un consumer group de la cuenta y los servidores de la cátedra.
+     */
     private static final Pattern FORBIDDEN = Pattern.compile(
             "(?i)\\b(password\\w*|phone\\w*|telefono|patientFirstName|patientLastName|firstName|lastName|"
-                    + "userToken|idToken|token|groupId|login)\\b");
+                    + "userToken|idToken|token|groupId|login|bootstrap\\w*|consumerGroup\\w*|\\w*[Tt]opic\\w*)\\b");
 
     private record Call(Path file, String code, String arguments) {
     }

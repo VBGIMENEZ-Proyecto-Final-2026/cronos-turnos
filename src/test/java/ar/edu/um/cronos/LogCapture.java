@@ -17,6 +17,8 @@ public final class LogCapture implements AutoCloseable {
     private final ch.qos.logback.classic.Level previous = root.getLevel();
 
     public LogCapture() {
+        // El consumidor de Kafka escribe desde su propio hilo mientras la prueba lee: una lista común no es segura.
+        appender.list = new java.util.concurrent.CopyOnWriteArrayList<>();
         root.setLevel(ch.qos.logback.classic.Level.TRACE);
         appender.start();
         root.addAppender(appender);

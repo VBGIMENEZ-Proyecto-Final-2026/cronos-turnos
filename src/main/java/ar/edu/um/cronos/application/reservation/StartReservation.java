@@ -8,6 +8,7 @@ import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.HoldGateway;
 import ar.edu.um.cronos.application.port.out.HoldGateway.HoldConfirmed;
 import ar.edu.um.cronos.application.port.out.HoldGateway.HoldCreated;
+import ar.edu.um.cronos.application.port.out.ReservationConflictException;
 import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.application.port.out.UserRepository;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
@@ -237,10 +238,31 @@ public class StartReservation {
                         "reserva", held.id(), "proceso", held.reservationProcessId(), "intento", attempt + 1);
             }
         }
-        Reservation waiting = reservations.save(held.waitingForPhone(confirmed.expiresAt(), now()));
+        Reservation waiting = saveWaiting(held, confirmed.expiresAt());
         LogEvent.info(log, "reserva.hold.confirmado", "usuario", waiting.userId(), "reserva", waiting.id(),
                 "proceso", waiting.reservationProcessId(), "estado", waiting.status(), "vence", waiting.expiresAt(),
                 "siguiente", "espera_el_telefono");
         return waiting;
+    }
+
+    /**
+     * Guarda el paso a {@code WAITING_FOR_PHONE}. La cátedra publica {@code AdditionalInformationRequested} apenas
+     * confirma, y el consumidor de Kafka puede guardar el {@code requestEventId} <i>entre</i> la respuesta REST y este
+     * guardado: el bloqueo optimista lo detecta aunque la cátedra ya haya confirmado. No es un error del usuario: se
+     * relee el proceso y, si sigue en {@code HELD}, se reaplica el paso sobre la versión nueva (que ya trae el
+     * {@code requestEventId}); si el evento ya lo adelantó, se devuelve tal cual.
+     */
+    private Reservation saveWaiting(Reservation held, Instant expiresAt) {
+        try {
+            return reservations.save(held.waitingForPhone(expiresAt, now()));
+        } catch (ReservationConflictException conflict) {
+            Reservation fresh = reservations.findById(held.id()).orElseThrow(() -> conflict);
+            LogEvent.info(log, "reserva.confirmacion.carrera", "usuario", held.userId(), "reserva", held.id(),
+                    "proceso", held.reservationProcessId(), "estado_actual", fresh.status(),
+                    "accion", fresh.status() == ReservationStatus.HELD ? "se_reaplica_sobre_la_version_nueva"
+                            : "se_devuelve_el_proceso_ya_avanzado");
+            return fresh.status() == ReservationStatus.HELD
+                    ? reservations.save(fresh.waitingForPhone(expiresAt, now())) : fresh;
+        }
     }
 }

@@ -54,6 +54,11 @@ class JpaReservationRepository implements ReservationRepository {
     }
 
     @Override
+    public Optional<Reservation> findByReservationProcessId(String reservationProcessId) {
+        return repository.findByReservationProcessId(reservationProcessId).map(ReservationEntity::toDomain);
+    }
+
+    @Override
     public Optional<Reservation> findActive(long userId, long professionalId, LocalDate date, LocalTime startTime) {
         return repository.findFirstByUserIdAndProfessionalIdAndDateAndStartTimeAndStatusIn(
                 userId, professionalId, date, startTime, ACTIVE).map(ReservationEntity::toDomain);

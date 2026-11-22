@@ -19,6 +19,9 @@ public interface ReservationRepository {
 
     Optional<Reservation> findById(long id);
 
+    /** El proceso que la cátedra conoce con este {@code reservationProcessId}; vacío si cronos no lo tiene. */
+    Optional<Reservation> findByReservationProcessId(String reservationProcessId);
+
     /** El proceso que todavía ocupa el turno del usuario (no terminó mal ni se cerró), si lo hay. */
     Optional<Reservation> findActive(long userId, long professionalId, LocalDate date, LocalTime startTime);
 }
