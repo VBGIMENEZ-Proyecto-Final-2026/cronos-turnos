@@ -11,12 +11,14 @@ import ar.edu.um.cronos.application.port.out.PhoneUnavailableException;
 import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
 import ar.edu.um.cronos.application.port.out.ReservationConflictException;
 import ar.edu.um.cronos.application.reservation.InvalidSlotException;
+import ar.edu.um.cronos.application.reservation.InvalidCancellationReasonException;
 import ar.edu.um.cronos.application.reservation.InvalidPageException;
 import ar.edu.um.cronos.application.reservation.PhoneAlreadySubmittedException;
 import ar.edu.um.cronos.application.reservation.PhoneNotRequestedException;
 import ar.edu.um.cronos.application.reservation.ProfessionalDisabledException;
 import ar.edu.um.cronos.application.reservation.ReservationExpiredException;
 import ar.edu.um.cronos.application.reservation.ReservationInProgressException;
+import ar.edu.um.cronos.application.reservation.ReservationNotCancellableException;
 import ar.edu.um.cronos.application.reservation.ReservationNotAwaitingPhoneException;
 import ar.edu.um.cronos.application.reservation.ReservationNotFoundException;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
@@ -187,6 +189,26 @@ class ApiExceptionHandler {
         return ResponseEntity.badRequest().body(problem);
     }
 
+    // ---- cancelar una reserva ------------------------------------------------------------------------------------------
+
+    /** Solo se cancela una reserva confirmada (o ya cancelada, que es idempotente). */
+    @ExceptionHandler(ReservationNotCancellableException.class)
+    ResponseEntity<ProblemDetail> reservaNoCancelable(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "RESERVATION_NOT_CANCELLABLE", request));
+    }
+
+    /** El motivo pasa los 500 caracteres: se nombra el campo y no se repite lo que escribió el usuario. */
+    @ExceptionHandler(InvalidCancellationReasonException.class)
+    ResponseEntity<ProblemDetail> motivoInvalido(HttpServletRequest request) {
+        ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", request);
+        problem.setTitle("Method argument not valid");
+        problem.setProperty("message", "error.validation");
+        problem.setProperty("fieldErrors", List.of(Map.of("objectName", "request", "field", "reason",
+                "message", "too long")));
+        return ResponseEntity.badRequest().body(problem);
+    }
+
     // ---- el teléfono de una reserva: ningún mensaje repite el número recibido -----------------------------------------
 
     /** La reserva no existe o es de otro usuario: se responde lo mismo, para no revelar que existe la de otro. */
@@ -255,6 +277,10 @@ class ApiExceptionHandler {
                     .body(problem(HttpStatus.NOT_FOUND, "PROFESSIONAL_NOT_FOUND", request));
             case HOLD_EXPIRED, HOLD_NOT_FOUND -> ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(problem(HttpStatus.CONFLICT, "HOLD_EXPIRED", request));
+            // La cátedra no la considera confirmada: cronos la tiene confirmada, así que hay una diferencia que conviene mirar,
+            // pero para el usuario es lo mismo que no poder cancelarla.
+            case RESERVATION_NOT_CANCELLABLE -> ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(problem(HttpStatus.CONFLICT, "RESERVATION_NOT_CANCELLABLE", request));
             default -> {
                 LogEvent.error(log, "catedra.rechazo_inesperado", e, "motivo", failure, "metodo", request.getMethod(),
                         "ruta", request.getRequestURI(), "estado", 502);

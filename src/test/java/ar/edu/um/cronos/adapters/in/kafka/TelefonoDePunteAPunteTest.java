@@ -2,6 +2,8 @@ package ar.edu.um.cronos.adapters.in.kafka;
 
 import ar.edu.um.cronos.IntegrationTestSupport;
 import ar.edu.um.cronos.LogCapture;
+import ar.edu.um.cronos.StubServer;
+import ar.edu.um.cronos.StubServer.Reply;
 import ar.edu.um.cronos.TestJwtKeyInitializer;
 import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.domain.Reservation;
@@ -74,6 +76,8 @@ class TelefonoDePunteAPunteTest {
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     static final KafkaContainer kafka = new KafkaContainer(DockerImageName.parse("apache/kafka:3.9.1"));
+    /** La API REST de la cátedra (solo la usa la cancelación). */
+    static final StubServer CATEDRA_REST = new StubServer();
 
     static {
         kafka.start();
@@ -99,13 +103,15 @@ class TelefonoDePunteAPunteTest {
                     "catedra.phone.bootstrap-servers=" + kafka.getBootstrapServers(),
                     "catedra.phone.topic=" + TELEFONO,
                     "catedra.phone.group-id=" + GROUP_ID_TECNICO,
-                    "catedra.phone.send-timeout=5s").applyTo(context);
+                    "catedra.phone.send-timeout=5s",
+                    "catedra.rest.base-url=" + CATEDRA_REST.url(), "catedra.rest.max-retries=0").applyTo(context);
         }
     }
 
     @AfterAll
     static void apagarKafka() {
         kafka.stop();
+        CATEDRA_REST.close();
     }
 
     @Autowired MockMvc mvc;
@@ -247,6 +253,23 @@ class TelefonoDePunteAPunteTest {
             assertThat(jdbc.queryForObject("SELECT catedra_reservation_id FROM reservation_process WHERE id = ?", Long.class, id))
                     .isEqualTo(8251L);
 
+            // 7b) El usuario cancela: la cátedra responde por REST y el estado local pasa a CANCELLED enseguida, sin esperar el
+            // evento. El AppointmentCancelled que la cátedra publica después llega a un estado final y no cambia nada.
+            CATEDRA_REST.reply(Reply.json(200, "{\"reservationId\":8251,\"reservationProcessId\":\"" + proceso
+                    + "\",\"status\":\"CANCELLED\",\"cancelledAt\":\"2026-11-22T15:10:00Z\"}"));
+            mvc.perform(post("/api/reservations/" + id + "/cancel").contentType(MediaType.APPLICATION_JSON)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token).content("{\"reason\":\"Cambio de planes\"}"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+            assertThat(estado(id)).isEqualTo("CANCELLED");
+            laCatedraPublica(evento("AppointmentCancelled", "cancellation-event-e2e-1", proceso, hold,
+                    "\"reservationId\":8251,\"status\":\"CANCELLED\",\"reason\":\"Cambio de planes\""));
+            await().atMost(Duration.ofSeconds(30)).untilAsserted(() -> assertThat(jdbc.queryForObject(
+                    "SELECT count(*) FROM processed_event WHERE event_id = 'cancellation-event-e2e-1'", Integer.class)).isEqualTo(1));
+            assertThat(estado(id)).as("el evento tardío no cambia nada").isEqualTo("CANCELLED");
+            assertThat(log.eventos("kafka.evento.ignorado")).anySatisfy(e ->
+                    assertThat(e.getFormattedMessage()).contains("id_evento=cancellation-event-e2e-1").contains("motivo=estado_final"));
+            assertThat(CATEDRA_REST.requests()).hasSize(1);
+
             // 8) Los teléfonos no quedaron en ninguna tabla.
             var guardado = new StringBuilder();
             for (String tabla : List.of("reservation_process", "processed_event", "unmatched_event")) {
@@ -259,7 +282,7 @@ class TelefonoDePunteAPunteTest {
                     .map(e -> e.getFormattedMessage()).reduce("", (a, b) -> a + "\n" + b);
             assertThat(deCronos).contains("reserva.telefono.enviado").contains("kafka.evento.aplicado")
                     .doesNotContain("7778899").doesNotContain("2615550000").doesNotContain(GROUP_ID_TECNICO)
-                    .doesNotContain(TELEFONO).doesNotContain(ACCIONES).doesNotContain(GRUPO_DE_LA_CUENTA);
+                    .doesNotContain(TELEFONO).doesNotContain(ACCIONES).doesNotContain(GRUPO_DE_LA_CUENTA).doesNotContain("Cambio de planes");
             assertThat(log.eventos("reserva.telefono.enviado")).hasSize(2);
         }
     }

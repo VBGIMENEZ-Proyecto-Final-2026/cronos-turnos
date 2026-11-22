@@ -234,6 +234,21 @@ La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, l
 docker exec cronos-db psql -U cronos -d cronos -c 'SELECT event_type, reason, count(*) FROM unmatched_event GROUP BY 1, 2;'
 ```
 
+### Cancelar una reserva: `POST /api/reservations/{id}/cancel` (requiere token)
+
+```bash
+curl -s -X POST localhost:8081/api/reservations/6/cancel -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"reason":"Cambio de planes"}'     # el cuerpo es opcional
+# 200 {"id":6,"status":"CANCELLED",...}
+```
+
+- Requisito 14 del enunciado: **solo una reserva propia y confirmada**. Para otro usuario o un id inexistente, el mismo `404 RESERVATION_NOT_FOUND`; en cualquier otro estado, `409 RESERVATION_NOT_CANCELLABLE`.
+- **Idempotente:** cancelar una reserva ya cancelada la devuelve tal cual (`200`) sin llamar a la cátedra.
+- Cronos llama a la cátedra (`POST /api/appointments/{reservationProcessId}/cancel`) y, con su respuesta, deja la reserva `CANCELLED` **enseguida**, sin esperar el evento de Kafka. El `AppointmentCancelled` que la cátedra publica después llega a un estado final y no cambia nada.
+- **Si no se sabe qué pasó** (timeout, error del servidor), se repite **una sola vez** como reconciliación (la cancelación es idempotente en la cátedra, así que es seguro; referencia 18.4). Si sigue sin saberse: `503 CATEDRA_UNAVAILABLE` y la reserva queda confirmada; repetir el pedido es seguro, y si la cátedra sí la canceló, el evento la actualiza.
+- `reason` admite hasta 500 caracteres (`400 VALIDATION_ERROR` si pasa, sin repetir lo escrito). **Es texto libre del usuario: se manda a la cátedra y no se guarda ni se registra.**
+- Si la cátedra no conoce la reserva o dice que es de otra cuenta (no debería pasar): `502 CATEDRA_ERROR`.
+
 ### Mis reservas: `GET /api/reservations` y `GET /api/reservations/{id}` (requieren token)
 
 ```bash
@@ -278,4 +293,4 @@ Cada línea que informa algo es un **evento**: un código estable y pares `clave
 - **Qué nunca se escribe:** tokens, contraseñas, teléfono, nombres, el nombre de usuario, la dirección y el `groupId` de la cátedra. Solo ids. Lo vigilan `ArquitecturaTest` (nadie llama a `log.info/warn/error` directo) y `NormaDeLogsTest`.
 - Para escribir un evento nuevo: `LogEvent.info(log, "dominio.accion", "usuario", id, "reserva", reservaId)`.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").
