@@ -60,7 +60,6 @@ catedra:
   kafka:
     bootstrap-servers: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS:}
     actions-topic: ${CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC:}
-    phone-topic: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC:}
     consumer-group-id: ${CATEDRA_KAFKA_CONSUMER_GROUP_ID:}
     # earliest: un grupo sin offset lee todo lo que hay, así no se pierde ningún evento.
     auto-offset-reset: ${CRONOS_KAFKA_AUTO_OFFSET_RESET:earliest}
@@ -78,6 +77,15 @@ catedra:
       enabled: ${CRONOS_KAFKA_CONSUMER_ENABLED:true}
     # Cada cuánto sin mensajes se revisa si el consumidor tiene particiones; sin ellas se avisa (Kafka no responde).
     idle-event-interval: ${CRONOS_KAFKA_IDLE_EVENT_INTERVAL:30s}
+  # El teléfono que responde al pedido de información adicional, por Kafka (cronos → cátedra). Si el envío está encendido
+  # (por defecto sí), los servidores, el topic del teléfono y el groupId de la cuenta son obligatorios.
+  phone:
+    enabled: ${CRONOS_PHONE_PRODUCER_ENABLED:true}
+    bootstrap-servers: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS:}
+    topic: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC:}
+    group-id: ${CATEDRA_GROUP_ID:}
+    # Cuánto se espera la confirmación del broker; pasado ese plazo el endpoint responde 503 y no se reintenta solo.
+    send-timeout: ${CRONOS_PHONE_SEND_TIMEOUT:5s}
 
 # Norma de logs (ADR 0006): cada línea de consola muestra el identificador del pedido que le pone RequestLogFilter
 # (vacío si no hay un pedido en curso, por ejemplo en el arranque o en un hilo de Kafka).

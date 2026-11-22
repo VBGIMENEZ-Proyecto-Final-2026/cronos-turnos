@@ -2,10 +2,13 @@ package ar.edu.um.cronos.adapters.out.persistence;
 
 import ar.edu.um.cronos.application.port.out.ActiveReservationExistsException;
 import ar.edu.um.cronos.application.port.out.ReservationConflictException;
+import ar.edu.um.cronos.application.port.out.ReservationPage;
 import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.domain.Reservation;
 import ar.edu.um.cronos.domain.ReservationStatus;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +59,16 @@ class JpaReservationRepository implements ReservationRepository {
     @Override
     public Optional<Reservation> findByReservationProcessId(String reservationProcessId) {
         return repository.findByReservationProcessId(reservationProcessId).map(ReservationEntity::toDomain);
+    }
+
+    @Override
+    public ReservationPage findByUser(long userId, ReservationStatus status, int page, int size) {
+        // Lo más reciente primero; a igual fecha, el id de mayor número (es el orden en que se crearon).
+        var order = PageRequest.of(page, size, Sort.by(Sort.Order.desc("createdAt"), Sort.Order.desc("id")));
+        var found = status == null ? repository.findByUserId(userId, order)
+                : repository.findByUserIdAndStatus(userId, status, order);
+        return new ReservationPage(found.getContent().stream().map(ReservationEntity::toDomain).toList(),
+                found.getTotalElements(), page, size);
     }
 
     @Override
