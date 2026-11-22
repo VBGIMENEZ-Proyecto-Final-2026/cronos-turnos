@@ -9,10 +9,10 @@ import java.util.Set;
  *
  * <pre>
  *   STARTING ─► HELD ─► WAITING_FOR_PHONE ─► CONFIRMED ─► CANCELLED
- *       │         │            ├─► REJECTED
- *       │         │            ├─► EXPIRED
- *       │         ├─► EXPIRED  ├─► INVALID
- *       └─► FAILED ◄──────────┴─► FAILED
+ *      │          │              │
+ *      │          ├─► EXPIRED ◄──┤
+ *      │          ├─► INVALID ◄──┤
+ *      └─► FAILED ◄┴──────────────┘
  * </pre>
  *
  * <ul>
@@ -21,16 +21,20 @@ import java.util.Set;
  *   <li>{@code HELD}: la cátedra creó el hold; falta confirmarlo.</li>
  *   <li>{@code WAITING_FOR_PHONE}: el hold se confirmó inicialmente; la cátedra espera la información adicional.</li>
  *   <li>{@code CONFIRMED}: reserva confirmada. Es el único estado no final desde el que se puede seguir: cancelar.</li>
- *   <li>Finales: {@code REJECTED} (información adicional rechazada), {@code EXPIRED}, {@code INVALID},
- *       {@code CANCELLED} y {@code FAILED} (no se pudo completar; el motivo queda en {@code failureCode}).</li>
+ *   <li>Finales: {@code EXPIRED}, {@code INVALID} (el motivo queda en {@code failureCode}), {@code CANCELLED} y
+ *       {@code FAILED} (no se pudo completar; el motivo queda en {@code failureCode}).</li>
  * </ul>
+ *
+ * <p><b>No existe un estado {@code REJECTED}.</b> Según la referencia de integración (15.7), tras
+ * {@code AdditionalInformationRejected} el proceso <i>continúa disponible hasta {@code expiresAt}</i> y se puede
+ * mandar otro teléfono con un {@code eventId} nuevo: un rechazo no termina nada. El proceso sigue en
+ * {@code WAITING_FOR_PHONE} y el motivo del último rechazo queda en {@code lastRejectionReason}.
  */
 public enum ReservationStatus {
     STARTING,
     HELD,
     WAITING_FOR_PHONE,
     CONFIRMED,
-    REJECTED,
     EXPIRED,
     INVALID,
     CANCELLED,
@@ -40,9 +44,9 @@ public enum ReservationStatus {
         return switch (this) {
             case STARTING -> EnumSet.of(HELD, FAILED);
             case HELD -> EnumSet.of(WAITING_FOR_PHONE, EXPIRED, INVALID, FAILED);
-            case WAITING_FOR_PHONE -> EnumSet.of(CONFIRMED, REJECTED, EXPIRED, INVALID, FAILED);
+            case WAITING_FOR_PHONE -> EnumSet.of(CONFIRMED, EXPIRED, INVALID, FAILED);
             case CONFIRMED -> EnumSet.of(CANCELLED);
-            case REJECTED, EXPIRED, INVALID, CANCELLED, FAILED -> EnumSet.noneOf(ReservationStatus.class);
+            case EXPIRED, INVALID, CANCELLED, FAILED -> EnumSet.noneOf(ReservationStatus.class);
         };
     }
 

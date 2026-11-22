@@ -12,7 +12,6 @@ import static ar.edu.um.cronos.domain.ReservationStatus.EXPIRED;
 import static ar.edu.um.cronos.domain.ReservationStatus.FAILED;
 import static ar.edu.um.cronos.domain.ReservationStatus.HELD;
 import static ar.edu.um.cronos.domain.ReservationStatus.INVALID;
-import static ar.edu.um.cronos.domain.ReservationStatus.REJECTED;
 import static ar.edu.um.cronos.domain.ReservationStatus.STARTING;
 import static ar.edu.um.cronos.domain.ReservationStatus.WAITING_FOR_PHONE;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,9 +23,8 @@ class ReservationStatusTest {
     private static final Map<ReservationStatus, Set<ReservationStatus>> PERMITIDAS = Map.of(
             STARTING, EnumSet.of(HELD, FAILED),
             HELD, EnumSet.of(WAITING_FOR_PHONE, EXPIRED, INVALID, FAILED),
-            WAITING_FOR_PHONE, EnumSet.of(CONFIRMED, REJECTED, EXPIRED, INVALID, FAILED),
+            WAITING_FOR_PHONE, EnumSet.of(CONFIRMED, EXPIRED, INVALID, FAILED),
             CONFIRMED, EnumSet.of(CANCELLED),
-            REJECTED, EnumSet.noneOf(ReservationStatus.class),
             EXPIRED, EnumSet.noneOf(ReservationStatus.class),
             INVALID, EnumSet.noneOf(ReservationStatus.class),
             CANCELLED, EnumSet.noneOf(ReservationStatus.class),
@@ -49,6 +47,19 @@ class ReservationStatusTest {
     }
 
     @Test
+    void unRechazoDelTelefonoNoEsUnEstadoPorqueElProcesoSigueVivoHastaQueVence() {
+        // Referencia 15.7: tras AdditionalInformationRejected el proceso continúa disponible hasta expiresAt y puede
+        // enviarse otro evento válido con un eventId nuevo. Un estado REJECTED final sería un error.
+        assertThat(ReservationStatus.values()).extracting(Enum::name).doesNotContain("REJECTED");
+    }
+
+    @Test
+    void esperandoElTelefonoSoloSeSaleConUnResultadoFinal() {
+        assertThat(PERMITIDAS.get(WAITING_FOR_PHONE)).containsExactlyInAnyOrder(CONFIRMED, EXPIRED, INVALID, FAILED);
+        assertThat(WAITING_FOR_PHONE.isFinal()).isFalse();
+    }
+
+    @Test
     void unEstadoNuncaPasaASiMismo() {
         for (ReservationStatus estado : ReservationStatus.values()) {
             assertThat(estado.canTransitionTo(estado)).as(estado.name()).isFalse();
@@ -57,7 +68,7 @@ class ReservationStatusTest {
 
     @Test
     void losEstadosFinalesNoAdmitenNingunaTransicion() {
-        for (ReservationStatus final_ : Set.of(REJECTED, EXPIRED, INVALID, CANCELLED, FAILED)) {
+        for (ReservationStatus final_ : Set.of(EXPIRED, INVALID, CANCELLED, FAILED)) {
             assertThat(final_.isFinal()).as(final_.name()).isTrue();
             for (ReservationStatus otro : ReservationStatus.values()) {
                 assertThat(final_.canTransitionTo(otro)).as(final_ + " -> " + otro).isFalse();

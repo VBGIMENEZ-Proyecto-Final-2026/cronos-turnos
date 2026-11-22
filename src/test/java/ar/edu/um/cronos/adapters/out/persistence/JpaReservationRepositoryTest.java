@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * La migración V2 y el adaptador de reservas contra un PostgreSQL real: lo que la base garantiza por su cuenta
+ * Las migraciones V2 y V3 y el adaptador de reservas contra un PostgreSQL real: lo que la base garantiza por su cuenta
  * (índice único parcial, versiones, restricciones) además de lo que el adaptador traduce.
  */
 @SpringBootTest
@@ -59,6 +59,8 @@ class JpaReservationRepositoryTest {
     @AfterEach
     void limpiar() {
         // Otras pruebas borran usuarios: las reservas se van antes (la base no deja borrar un usuario con reservas).
+        jdbc.update("DELETE FROM processed_event");
+        jdbc.update("DELETE FROM unmatched_event");
         jdbc.update("DELETE FROM reservation_process");
         jdbc.update("DELETE FROM user_authority");
         jdbc.update("DELETE FROM app_user");
@@ -190,10 +192,10 @@ class JpaReservationRepositoryTest {
     void findActiveIgnoraLosProcesosFinalesPeroNoLosConfirmados() {
         var held = reservations.save(conHold(reservations.save(nueva(ana)), "hold-1", "process-1"));
         var esperando = reservations.save(held.waitingForPhone(VENCE, T0.plusSeconds(2)));
-        var confirmada = reservations.save(esperando.moveTo(ReservationStatus.CONFIRMED, T0.plusSeconds(3)));
+        var confirmada = reservations.save(esperando.confirmed(8251, T0.plusSeconds(3)));
         assertThat(reservations.findActive(ana, 218, DIA, LocalTime.of(14, 30))).isPresent();
 
-        reservations.save(confirmada.moveTo(ReservationStatus.CANCELLED, T0.plusSeconds(4)));
+        reservations.save(confirmada.cancelled(T0.plusSeconds(4)));
 
         assertThat(reservations.findActive(ana, 218, DIA, LocalTime.of(14, 30))).isEmpty();
     }
@@ -227,6 +229,86 @@ class JpaReservationRepositoryTest {
         assertThatThrownBy(() -> jdbc.update(
                 "UPDATE reservation_process SET status = 'INVENTADO' WHERE id = ?", guardado.id()))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    // ---- V3: eventos de la cátedra ---------------------------------------------------------------------------
+
+    @Test
+    void guardaYLeeLosDatosQueInformaLaCatedra() {
+        var esperando = reservations.save(conHold(reservations.save(nueva(ana)), "hold-1", "process-1")
+                .waitingForPhone(VENCE, T0.plusSeconds(2)));
+        var pedido = reservations.save(esperando.informationRequested("request-event-1", T0.plusSeconds(3)));
+        var rechazado = reservations.save(pedido.informationRejected("INVALID_PHONE_NUMBER", T0.plusSeconds(4)));
+
+        var leido = reservations.findById(rechazado.id()).orElseThrow();
+        assertThat(leido.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(leido.requestEventId()).isEqualTo("request-event-1");
+        assertThat(leido.lastRejectionReason()).isEqualTo("INVALID_PHONE_NUMBER");
+        assertThat(leido.catedraReservationId()).isNull();
+
+        var confirmada = reservations.save(leido.confirmed(8251, T0.plusSeconds(5)));
+        var releida = reservations.findById(confirmada.id()).orElseThrow();
+        assertThat(releida.status()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(releida.catedraReservationId()).isEqualTo(8251L);
+        assertThat(releida.requestEventId()).isEqualTo("request-event-1");
+    }
+
+    @Test
+    void laBaseYaNoAceptaRejectedComoEstado() {
+        var guardado = reservations.save(nueva(ana));
+
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE reservation_process SET status = 'REJECTED' WHERE id = ?", guardado.id()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void unaReservaConfirmadaOCanceladaSabeComoLaLlamaLaCatedra() {
+        var esperando = reservations.save(conHold(reservations.save(nueva(ana)), "hold-1", "process-1")
+                .waitingForPhone(VENCE, T0.plusSeconds(2)));
+
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE reservation_process SET status = 'CONFIRMED' WHERE id = ?", esperando.id()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(
+                "UPDATE reservation_process SET status = 'CANCELLED' WHERE id = ?", esperando.id()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void dosProcesosNoPuedenTenerLaMismaReservaDeLaCatedra() {
+        var uno = reservations.save(conHold(reservations.save(nueva(ana)), "hold-1", "process-1")
+                .waitingForPhone(VENCE, T0.plusSeconds(2)).confirmed(8251, T0.plusSeconds(3)));
+        var otro = reservations.save(conHold(reservations.save(nueva(beto)), "hold-2", "process-2")
+                .waitingForPhone(VENCE, T0.plusSeconds(2)));
+
+        assertThat(uno.catedraReservationId()).isEqualTo(8251L);
+        assertThatThrownBy(() -> reservations.save(otro.confirmed(8251, T0.plusSeconds(4))))
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void unEventoYaProcesadoNoSePuedeRegistrarDeNuevo() {
+        String insertar = "INSERT INTO processed_event (event_id, event_type, reservation_process_id, processed_at) "
+                + "VALUES (?, 'AppointmentConfirmed', 'process-1', now())";
+        jdbc.update(insertar, "confirmation-event-1");
+
+        assertThatThrownBy(() -> jdbc.update(insertar, "confirmation-event-1"))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        // ON CONFLICT DO NOTHING es lo que usará el consumidor para decidir "ya procesado" sin lanzar nada.
+        assertThat(jdbc.update(insertar + " ON CONFLICT (event_id) DO NOTHING", "confirmation-event-1")).isZero();
+        assertThat(jdbc.update(insertar + " ON CONFLICT (event_id) DO NOTHING", "confirmation-event-2")).isEqualTo(1);
+    }
+
+    @Test
+    void unEventoSinProcesoSeEstacionaUnaSolaVez() {
+        String insertar = "INSERT INTO unmatched_event (event_id, event_type, reservation_process_id, reason, "
+                + "received_at) VALUES (?, 'AppointmentProcessExpired', 'process-viejo', 'UNKNOWN_PROCESS', now()) "
+                + "ON CONFLICT (event_id) DO NOTHING";
+
+        assertThat(jdbc.update(insertar, "process-event-1")).isEqualTo(1);
+        assertThat(jdbc.update(insertar, "process-event-1")).as("el mismo evento leído de nuevo").isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM unmatched_event", Integer.class)).isEqualTo(1);
     }
 
     @Test

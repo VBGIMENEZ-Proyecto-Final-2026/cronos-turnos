@@ -71,6 +71,97 @@ class ReservationTest {
         assertThat(fallida.failureCode()).isEqualTo("SLOT_ALREADY_HELD");
     }
 
+    // ---- lo que informa la cátedra por Kafka -----------------------------------------------------------------
+
+    private static Reservation esperando() {
+        return nueva().held("hold-1", "process-1", VENCE, T1).waitingForPhone(VENCE, T1);
+    }
+
+    @Test
+    void elPedidoDeTelefonoGuardaSuEventIdYNoCambiaElEstado() {
+        var held = nueva().held("hold-1", "process-1", VENCE, T1);
+
+        var pedido = held.informationRequested("request-event-1", T1.plusSeconds(1));
+
+        assertThat(pedido.requestEventId()).isEqualTo("request-event-1");
+        assertThat(pedido.status()).isEqualTo(ReservationStatus.HELD);
+        assertThat(pedido.updatedAt()).isEqualTo(T1.plusSeconds(1));
+        assertThat(held.requestEventId()).as("inmutable").isNull();
+        // Un pedido más nuevo reemplaza al anterior y el proceso ya esperando también lo guarda.
+        assertThat(esperando().informationRequested("request-event-1", T1).informationRequested("request-event-2", T1)
+                .requestEventId()).isEqualTo("request-event-2");
+    }
+
+    @Test
+    void unRechazoDelTelefonoGuardaElMotivoYElProcesoSigueEsperando() {
+        var rechazado = esperando().informationRequested("request-event-1", T1)
+                .informationRejected("INVALID_PHONE_NUMBER", T1.plusSeconds(2));
+
+        assertThat(rechazado.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(rechazado.status().isFinal()).isFalse();
+        assertThat(rechazado.lastRejectionReason()).isEqualTo("INVALID_PHONE_NUMBER");
+        assertThat(rechazado.requestEventId()).as("el pedido sigue siendo el mismo").isEqualTo("request-event-1");
+        assertThat(rechazado.failureCode()).as("un rechazo no es una falla del proceso").isNull();
+        // Y se puede confirmar después: el rechazo no cerró nada.
+        assertThat(rechazado.confirmed(8251, T1.plusSeconds(3)).status()).isEqualTo(ReservationStatus.CONFIRMED);
+    }
+
+    @Test
+    void elMotivoDeUnRechazoSoloSeGuardaSiEsUnCodigoEstable() {
+        for (String raro : new String[]{null, "", "texto libre con espacios", "minúscula", "A".repeat(61),
+                "+5492615551234", "INVALID PHONE"}) {
+            assertThat(esperando().informationRejected(raro, T1).lastRejectionReason())
+                    .as("motivo %s", raro).isEqualTo("OTHER");
+        }
+        assertThat(esperando().informationRejected("A".repeat(60), T1).lastRejectionReason()).hasSize(60);
+    }
+
+    @Test
+    void laConfirmacionGuardaElIdDeLaReservaDeLaCatedra() {
+        var confirmada = esperando().confirmed(8251, T1.plusSeconds(1));
+
+        assertThat(confirmada.status()).isEqualTo(ReservationStatus.CONFIRMED);
+        assertThat(confirmada.catedraReservationId()).isEqualTo(8251L);
+        assertThat(confirmada.holdId()).isEqualTo("hold-1");
+        assertThat(confirmada.expiresAt()).isEqualTo(VENCE);
+    }
+
+    @Test
+    void unProcesoInvalidoGuardaElMotivoPeroSoloComoCodigoEstable() {
+        var invalido = esperando().invalid("REQUEST_EVENT_MISMATCH", T1);
+
+        assertThat(invalido.status()).isEqualTo(ReservationStatus.INVALID);
+        assertThat(invalido.failureCode()).isEqualTo("REQUEST_EVENT_MISMATCH");
+        assertThat(esperando().invalid("Un texto libre de la cátedra", T1).failureCode()).isEqualTo("OTHER");
+        // Desde HELD también es posible (referencia 15.9).
+        assertThat(nueva().held("hold-1", "process-1", VENCE, T1).invalid("X_Y", T1).status())
+                .isEqualTo(ReservationStatus.INVALID);
+    }
+
+    @Test
+    void soloUnaReservaConfirmadaSePuedeCancelar() {
+        var cancelada = esperando().confirmed(8251, T1).cancelled(T1.plusSeconds(1));
+
+        assertThat(cancelada.status()).isEqualTo(ReservationStatus.CANCELLED);
+        assertThat(cancelada.catedraReservationId()).as("la reserva cancelada conserva su id").isEqualTo(8251L);
+        assertThatThrownBy(() -> esperando().cancelled(T1)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> nueva().cancelled(T1)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void unEventoSoloTieneSentidoSobreUnProcesoConHoldQueNoTermino() {
+        var confirmada = esperando().confirmed(8251, T1);
+        var expirada = esperando().expired(T1);
+
+        for (var r : new Reservation[]{nueva(), confirmada, expirada}) {
+            assertThatThrownBy(() -> r.informationRequested("e", T1)).as("requested en %s", r.status())
+                    .isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> r.informationRejected("INVALID_PHONE_NUMBER", T1))
+                    .as("rejected en %s", r.status()).isInstanceOf(IllegalStateException.class);
+        }
+        assertThatThrownBy(() -> esperando().informationRequested(null, T1)).isInstanceOf(NullPointerException.class);
+    }
+
     @Test
     void unaTransicionNoPermitidaSeRechaza() {
         assertThatThrownBy(() -> nueva().waitingForPhone(VENCE, T1))
@@ -83,8 +174,9 @@ class ReservationTest {
         var expirada = nueva().held("hold-1", "process-1", VENCE, T1).expired(T1);
 
         assertThatThrownBy(() -> expirada.waitingForPhone(VENCE, T1)).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> expirada.moveTo(ReservationStatus.CONFIRMED, T1))
-                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> expirada.confirmed(8251, T1)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> expirada.invalid("X", T1)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> expirada.cancelled(T1)).isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> expirada.failed("X", T1)).isInstanceOf(IllegalStateException.class);
     }
 

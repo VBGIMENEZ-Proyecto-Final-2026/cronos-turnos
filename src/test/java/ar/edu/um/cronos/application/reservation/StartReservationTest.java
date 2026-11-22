@@ -98,8 +98,9 @@ class StartReservationTest {
         private static Reservation withIdAndVersion(Reservation r, long id, long version) {
             return new Reservation(id, r.userId(), r.reservationProcessId(), r.holdId(), r.professionalId(),
                     r.professionalFirstName(), r.professionalLastName(), r.date(), r.startTime(), r.endTime(),
-                    r.patientFirstName(), r.patientLastName(), r.status(), r.expiresAt(), r.failureCode(), version,
-                    r.createdAt(), r.updatedAt());
+                    r.patientFirstName(), r.patientLastName(), r.status(), r.expiresAt(), r.failureCode(),
+                    r.requestEventId(), r.lastRejectionReason(), r.catedraReservationId(), version, r.createdAt(),
+                    r.updatedAt());
         }
 
         @Override
@@ -543,7 +544,7 @@ class StartReservationTest {
         var conEstado = switch (estado) {
             case HELD -> held;
             case WAITING_FOR_PHONE -> held.waitingForPhone(vence, AHORA.instant());
-            case CONFIRMED -> held.waitingForPhone(vence, AHORA.instant()).moveTo(ReservationStatus.CONFIRMED,
+            case CONFIRMED -> held.waitingForPhone(vence, AHORA.instant()).confirmed(8251,
                     AHORA.instant());
             default -> throw new IllegalArgumentException();
         };
