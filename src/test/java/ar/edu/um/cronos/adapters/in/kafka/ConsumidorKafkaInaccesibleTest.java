@@ -1,6 +1,7 @@
 package ar.edu.um.cronos.adapters.in.kafka;
 
 import ar.edu.um.cronos.IntegrationTestSupport;
+import ar.edu.um.cronos.LogCapture;
 import ar.edu.um.cronos.TestJwtKeyInitializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,7 +45,9 @@ class ConsumidorKafkaInaccesibleTest {
                     "catedra.kafka.consumer.enabled=true",
                     "catedra.kafka.bootstrap-servers=localhost:1",
                     "catedra.kafka.actions-topic=alumnos.turnos.acciones.cuenta-de-prueba",
-                    "catedra.kafka.consumer-group-id=alumnos-prueba-inaccesible").applyTo(context);
+                    "catedra.kafka.consumer-group-id=alumnos-prueba-inaccesible",
+                    // El aviso de "sin particiones" cada segundo, para no esperar 30 en la prueba.
+                    "catedra.kafka.idle-event-interval=1s").applyTo(context);
         }
     }
 
@@ -57,5 +60,26 @@ class ConsumidorKafkaInaccesibleTest {
 
         mockMvc.perform(get("/actuator/health")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
         assertThat(consumidor.getAssignedPartitions()).isNullOrEmpty();
+    }
+
+    @Test
+    void conKafkaCaidoElLogNoEscribeElGrupoNiElTopicNiLaDireccionPeroSiAvisaQueNoHayParticiones() throws Exception {
+        // Es el caso que ya vivimos: la red de la cátedra caída. La librería de Kafka escribía en WARN, en cada reintento de
+        // conexión, "[Consumer clientId=..., groupId=<grupo>] Connection to node -1 (<servidor>) could not be established".
+        try (var log = new LogCapture()) {
+            await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+                    assertThat(log.eventos("kafka.consumidor.sin_particiones")).isNotEmpty());
+            Thread.sleep(8000); // varios reintentos de conexión de la librería
+
+            String conNivelDeProduccion = log.list().stream()
+                    .filter(e -> e.getLevel().isGreaterOrEqual(ch.qos.logback.classic.Level.WARN))
+                    .filter(e -> !e.getThreadName().equals(Thread.currentThread().getName()))
+                    .map(e -> e.getLoggerName() + " " + e.getFormattedMessage()).reduce("", (a, b) -> a + "\n" + b);
+            assertThat(conNivelDeProduccion).contains("kafka.consumidor.sin_particiones")
+                    .doesNotContain("alumnos-prueba-inaccesible").doesNotContain("cuenta-de-prueba")
+                    .doesNotContain("localhost:1").doesNotContain("127.0.0.1");
+            assertThat(log.eventos("kafka.consumidor.sin_particiones").get(0).getFormattedMessage())
+                    .contains("accion=cronos_sigue_atendiendo_pedidos_y_el_consumidor_reintenta_solo");
+        }
     }
 }

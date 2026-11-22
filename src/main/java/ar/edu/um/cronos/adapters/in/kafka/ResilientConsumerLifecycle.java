@@ -19,7 +19,7 @@ import java.util.concurrent.TimeUnit;
  * pedidos: solo se atrasa el resultado final de las reservas, que llega cuando Kafka vuelve.
  *
  * <p>El contenedor se crea con {@code autoStartup = false}: lo arranca y lo detiene este ciclo de vida. No se registra el
- * mensaje de la excepción: el de un error de conexión trae la dirección de los servidores de la cátedra.
+ * mensaje de la excepción, por prudencia: el cliente de Kafka lo arma con los parámetros de conexión y, según el error, puede incluir los servidores de la cátedra (con un host que no resuelve dice solo "No resolvable bootstrap urls").
  */
 public class ResilientConsumerLifecycle implements SmartLifecycle {
 

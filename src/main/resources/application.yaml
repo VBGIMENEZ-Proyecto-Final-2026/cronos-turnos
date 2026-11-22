@@ -76,6 +76,8 @@ catedra:
       max-delay: ${CRONOS_KAFKA_RETRY_MAX_DELAY:30s}
     consumer:
       enabled: ${CRONOS_KAFKA_CONSUMER_ENABLED:true}
+    # Cada cuánto sin mensajes se revisa si el consumidor tiene particiones; sin ellas se avisa (Kafka no responde).
+    idle-event-interval: ${CRONOS_KAFKA_IDLE_EVENT_INTERVAL:30s}
 
 # Norma de logs (ADR 0006): cada línea de consola muestra el identificador del pedido que le pone RequestLogFilter
 # (vacío si no hay un pedido en curso, por ejemplo en el arranque o en un hilo de Kafka).
@@ -83,10 +85,13 @@ logging:
   pattern:
     correlation: "[%X{requestId:-}] "
   level:
-    # El cliente de Kafka y Spring Kafka escriben en INFO el nombre del grupo y del topic, que contienen el groupId (un dato
-    # del alumno), y los servidores de la cátedra. Cronos registra sus propios eventos del consumidor (kafka.*).
-    org.apache.kafka: WARN
-    org.springframework.kafka: WARN
+    # El cliente de Kafka y Spring Kafka escriben el nombre del grupo (que contiene el groupId, un dato del alumno), el del
+    # topic y la dirección de los servidores de la cátedra: en INFO al armarse y, sobre todo, en WARN cada pocos segundos
+    # mientras Kafka no responde ("Connection to node -1 (host:puerto) could not be established", con el groupId en el
+    # prefijo). Quedan en ERROR; cronos registra sus propios eventos del consumidor (kafka.*), incluido
+    # kafka.consumidor.sin_particiones, que avisa cuando Kafka no responde sin escribir nada de eso.
+    org.apache.kafka: ERROR
+    org.springframework.kafka: ERROR
 
 management:
   endpoints:

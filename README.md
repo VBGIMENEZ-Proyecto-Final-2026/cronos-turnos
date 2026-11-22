@@ -225,9 +225,9 @@ La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, l
 - **Si el proceso del evento no existe:** se reintenta 3 veces y se estaciona en la tabla `unmatched_event`.
 - **Si la base no responde:** se reintenta **sin límite**, con espera creciente (hasta 30 s). No se descarta ni se saltea: el orden de los eventos de un proceso importa, y descartar podría perder una confirmación.
 - **Si un mensaje falla siempre por sí mismo:** 3 intentos y se estaciona (`PROCESSING_FAILED`).
-- **Cronos arranca aunque Kafka no responda** y sigue atendiendo pedidos; el consumidor reintenta conectarse cada 10 s. Para apagarlo: `CRONOS_KAFKA_CONSUMER_ENABLED=false`.
+- **Cronos arranca aunque Kafka no responda** y sigue atendiendo pedidos; el consumidor reintenta conectarse cada 10 s. Mientras no tiene particiones asignadas escribe `evento=kafka.consumidor.sin_particiones` cada 30 s (`CRONOS_KAFKA_IDLE_EVENT_INTERVAL`). Para apagarlo: `CRONOS_KAFKA_CONSUMER_ENABLED=false`.
 - **Qué mirar:** `grep 'evento=kafka\.'` en el log; cada línea de un mensaje lleva `kafka-<partición>-<offset>` en el lugar del `requestId`. Los eventos están en el ADR 0006.
-- **Qué no se escribe nunca:** el nombre del topic ni del grupo (contienen el `groupId` de la cuenta), los servidores de la cátedra, el contenido de un mensaje ni el mensaje de una excepción de base de datos (puede traer la fila con los datos del paciente). Se fija además un `client.id` propio, porque el que arma el cliente lleva el nombre del grupo.
+- **Qué no se escribe:** el nombre del topic ni del grupo (contienen el `groupId` de la cuenta), los servidores de la cátedra, el contenido de un mensaje ni el mensaje de una excepción de base de datos (puede traer la fila con los datos del paciente). Se fija un `client.id` propio (el que arma el cliente lleva el nombre del grupo) y las librerías `org.apache.kafka` y `org.springframework.kafka` quedan en `ERROR`: con Kafka caído escribían en `WARN`, cada pocos segundos, el grupo y la dirección del servidor. **Límite:** un error de esas librerías a nivel `ERROR` podría incluirlos; no se enmascara.
 
 ```bash
 # Ver los eventos estacionados (procesos que no existen o mensajes que fallan siempre):

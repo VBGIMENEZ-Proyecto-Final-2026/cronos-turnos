@@ -43,7 +43,7 @@ class ResilientConsumerLifecycleTest {
     }
 
     @Test
-    void noEscribeElMensajeDeLaExcepcionPorqueTrae_laDireccionDeLaCatedra() {
+    void noEscribeElMensajeDeLaExcepcionPorPrudenciaAunqueTraigaUnaDireccion() {
         MessageListenerContainer container = mock(MessageListenerContainer.class);
         doThrow(new KafkaException("Failed to resolve 'kafka-de-la-catedra.example:9092'"))
                 .when(container).start();

@@ -4,6 +4,7 @@ import ar.edu.um.cronos.adapters.in.kafka.ReservationEventParser;
 import ar.edu.um.cronos.adapters.in.kafka.ReservationEventsListener;
 import ar.edu.um.cronos.adapters.in.kafka.ResilientConsumerLifecycle;
 import ar.edu.um.cronos.adapters.in.kafka.ConsumerErrorPolicy;
+import ar.edu.um.cronos.adapters.in.kafka.ConsumerIdleLogger;
 import ar.edu.um.cronos.application.reservation.ProcessReservationEvent;
 import ar.edu.um.cronos.logging.LogEvent;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -12,6 +13,7 @@ import org.apache.kafka.common.serialization.StringDeserializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -86,8 +88,11 @@ class CatedraKafkaConfig {
     @Bean
     KafkaMessageListenerContainer<String, String> reservationEventsContainer(
             ConsumerFactory<String, String> reservationEventsConsumerFactory, CatedraKafkaProperties properties,
-            ReservationEventParser parser, ProcessReservationEvent process) {
+            ReservationEventParser parser, ProcessReservationEvent process,
+            @Value("${catedra.kafka.idle-event-interval:30s}") Duration idleEventInterval) {
         ContainerProperties container = new ContainerProperties(properties.actionsTopic().strip());
+        // Cada tanto sin mensajes el contenedor publica un evento: ConsumerIdleLogger avisa si no tiene particiones.
+        container.setIdleEventInterval(idleEventInterval.toMillis());
         // MANUAL_IMMEDIATE: el offset se confirma en el momento del acknowledge, después de la transacción.
         container.setAckMode(ContainerProperties.AckMode.MANUAL_IMMEDIATE);
         // El client.id por defecto lleva el nombre del grupo (que contiene el groupId de la cuenta) y aparece en los logs del
@@ -111,6 +116,11 @@ class CatedraKafkaConfig {
         // Lo arranca ResilientConsumerLifecycle, para que una falla al construir el consumidor no tumbe la app.
         listener.setAutoStartup(false);
         return listener;
+    }
+
+    @Bean
+    ConsumerIdleLogger reservationEventsIdleLogger() {
+        return new ConsumerIdleLogger();
     }
 
     @Bean
