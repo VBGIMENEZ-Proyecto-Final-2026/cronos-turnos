@@ -2,15 +2,14 @@ package ar.edu.um.cronos.adapters.in.security;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.AuthenticationException;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import tools.jackson.databind.json.JsonMapper;
@@ -42,8 +41,8 @@ public class SecurityProblemHandler implements AuthenticationEntryPoint, AccessD
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException exception) throws IOException {
-        log.warn("Acceso rechazado: 401 {} {} ({})", request.getMethod(), request.getRequestURI(),
-                exception.getClass().getSimpleName());
+        LogEvent.warn(log, "seguridad.acceso.no_autenticado", "metodo", request.getMethod(),
+                "ruta", request.getRequestURI(), "motivo", exception.getClass().getSimpleName(), "estado", 401);
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
         write(response, request, HttpStatus.UNAUTHORIZED, "NO_AUTENTICADO");
     }
@@ -51,9 +50,9 @@ public class SecurityProblemHandler implements AuthenticationEntryPoint, AccessD
     @Override
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException exception) throws IOException {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        log.warn("Acceso rechazado: 403 {} {} usuario={}", request.getMethod(), request.getRequestURI(),
-                authentication == null ? "-" : authentication.getName());
+        // No se registra quién es: el nombre de usuario es un dato personal y el requestId alcanza para seguir el pedido.
+        LogEvent.warn(log, "seguridad.acceso.denegado", "metodo", request.getMethod(),
+                "ruta", request.getRequestURI(), "motivo", exception.getClass().getSimpleName(), "estado", 403);
         write(response, request, HttpStatus.FORBIDDEN, "SIN_PERMISO");
     }
 

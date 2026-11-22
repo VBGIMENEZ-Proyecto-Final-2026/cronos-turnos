@@ -57,6 +57,17 @@ public final class LogCapture implements AutoCloseable {
         return appender.list.size();
     }
 
+    /** Los eventos tal cual los vio logback (nivel, mensaje, excepción y MDC), en el orden en que se escribieron. */
+    public java.util.List<ILoggingEvent> list() {
+        return java.util.List.copyOf(appender.list);
+    }
+
+    /** Las líneas de evento ({@code evento=...}) registradas con ese código, para comprobar un hito concreto. */
+    public java.util.List<ILoggingEvent> eventos(String codigo) {
+        return list().stream().filter(e -> e.getFormattedMessage().startsWith("evento=" + codigo + " ")
+                || e.getFormattedMessage().equals("evento=" + codigo)).toList();
+    }
+
     @Override
     public void close() {
         root.detachAppender(appender);

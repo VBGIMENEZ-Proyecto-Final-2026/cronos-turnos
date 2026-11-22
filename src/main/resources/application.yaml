@@ -55,6 +55,12 @@ catedra:
     read-timeout: ${CATEDRA_REST_READ_TIMEOUT:10s}
     max-retries: ${CATEDRA_REST_MAX_RETRIES:1}
 
+# Norma de logs (ADR 0006): cada línea de consola muestra el identificador del pedido que le pone RequestLogFilter
+# (vacío si no hay un pedido en curso, por ejemplo en el arranque o en un hilo de Kafka).
+logging:
+  pattern:
+    correlation: "[%X{requestId:-}] "
+
 management:
   endpoints:
     web:

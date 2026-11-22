@@ -113,7 +113,8 @@ class CatedraOccupancyClientTest {
 
                 assertThat(servidor.requests()).as("HTTP " + status + " no se reintenta").hasSize(1);
                 assertThat(log.events()).isPositive();
-                assertThat(log.text()).contains("rechazó la credencial").doesNotContain(TOKEN_TECNICO);
+                assertThat(log.text()).contains("evento=catedra.credencial.rechazada operacion=consultar_ocupaciones profesional=15 estado=")
+                        .contains("accion=rotar_token_en_env").doesNotContain(TOKEN_TECNICO);
                 assertThat(error.getMessage()).doesNotContain(TOKEN_TECNICO);
             }
         }

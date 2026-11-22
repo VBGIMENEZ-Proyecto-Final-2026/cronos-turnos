@@ -15,6 +15,7 @@ import ar.edu.um.cronos.application.reservation.ReservationInProgressException;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.application.user.InvalidCredentialsException;
 import jakarta.servlet.http.HttpServletRequest;
+import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
@@ -134,14 +135,16 @@ class ApiExceptionHandler {
     /** Sin catálogo no se puede validar la información vigente (enunciado 8): se responde 503 y se dice cuál. */
     @ExceptionHandler(CatalogUnavailableException.class)
     ResponseEntity<ProblemDetail> catalogoNoDisponible(CatalogUnavailableException e, HttpServletRequest request) {
-        log.warn("El catálogo no está disponible para {} {}", request.getMethod(), request.getRequestURI());
+        LogEvent.warn(log, "catalogo.no_disponible", "metodo", request.getMethod(), "ruta", request.getRequestURI(),
+                "estado", 503);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "CATALOG_UNAVAILABLE", request));
     }
 
     @ExceptionHandler(CatedraUnavailableException.class)
     ResponseEntity<ProblemDetail> catedraNoDisponible(CatedraUnavailableException e, HttpServletRequest request) {
-        log.warn("La cátedra no está disponible para {} {}", request.getMethod(), request.getRequestURI());
+        LogEvent.warn(log, "catedra.no_disponible", "metodo", request.getMethod(), "ruta", request.getRequestURI(),
+                "estado", 503);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "CATEDRA_UNAVAILABLE", request));
     }
@@ -190,8 +193,8 @@ class ApiExceptionHandler {
             case HOLD_EXPIRED, HOLD_NOT_FOUND -> ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(problem(HttpStatus.CONFLICT, "HOLD_EXPIRED", request));
             default -> {
-                log.error("La cátedra rechazó una operación por un motivo que no debería ocurrir ({}) en {} {}",
-                        failure, request.getMethod(), request.getRequestURI());
+                LogEvent.error(log, "catedra.rechazo_inesperado", e, "motivo", failure, "metodo", request.getMethod(),
+                        "ruta", request.getRequestURI(), "estado", 502);
                 yield ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                         .body(problem(HttpStatus.BAD_GATEWAY, "CATEDRA_ERROR", request));
             }
@@ -200,7 +203,8 @@ class ApiExceptionHandler {
 
     @ExceptionHandler({DataAccessException.class, TransactionException.class})
     ResponseEntity<ProblemDetail> baseNoDisponible(RuntimeException e, HttpServletRequest request) {
-        log.warn("No se pudo usar la base de datos ({})", e.getClass().getSimpleName());
+        LogEvent.warn(log, "base_de_datos.no_disponible", "motivo", e.getClass().getSimpleName(),
+                "metodo", request.getMethod(), "ruta", request.getRequestURI(), "estado", 503);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                 .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", request));
     }

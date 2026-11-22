@@ -128,6 +128,24 @@ class RegistrationApiTest {
     }
 
     @Test
+    void elRegistroYSusRechazosDejanSuEventoSinDatosPersonales() throws Exception {
+        try (var log = new ar.edu.um.cronos.LogCapture()) {
+            register(body("juan", SECRETA, ",\"email\":\"mismo@ejemplo.test\"")).andExpect(status().isCreated());
+            register(body("JUAN", SECRETA, "")).andExpect(status().isBadRequest());
+            register(body("ana", SECRETA, ",\"email\":\"mismo@ejemplo.test\"")).andExpect(status().isBadRequest());
+
+            long id = jdbc.queryForObject("SELECT id FROM app_user WHERE login = 'juan'", Long.class);
+            assertThat(log.eventos("usuario.registrado")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).isEqualTo("evento=usuario.registrado usuario=" + id));
+            assertThat(log.eventos("usuario.registro.rechazado")).extracting(e -> e.getFormattedMessage())
+                    .containsExactly("evento=usuario.registro.rechazado motivo=login_en_uso",
+                            "evento=usuario.registro.rechazado motivo=email_en_uso");
+            assertThat(log.list().stream().map(e -> e.getFormattedMessage()).filter(m -> m.startsWith("evento=")))
+                    .noneMatch(m -> m.contains("juan") || m.contains("ana") || m.contains("mismo@"));
+        }
+    }
+
+    @Test
     void unEmailRepetidoDa400EmailAlreadyExists() throws Exception {
         register(body("juan", SECRETA, ",\"email\":\"mismo@ejemplo.test\"")).andExpect(status().isCreated());
 

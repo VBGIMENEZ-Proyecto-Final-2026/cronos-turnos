@@ -184,6 +184,26 @@ class AuthenticationApiTest {
     }
 
     @Test
+    void elLoginDejaSuEventoConElIdYSinElNombreDeUsuario() throws Exception {
+        registrar("juan");
+        try (var log = new ar.edu.um.cronos.LogCapture()) {
+            login("juan", SECRETA, ",\"rememberMe\":true").andExpect(status().isOk());
+            login("juan", "otra-clave-1", "").andExpect(status().isUnauthorized());
+            login("nadie", "otra-clave-1", "").andExpect(status().isUnauthorized());
+
+            long id = jdbc.queryForObject("SELECT id FROM app_user WHERE login = 'juan'", Long.class);
+            assertThat(log.eventos("usuario.login.ok")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).isEqualTo("evento=usuario.login.ok usuario=" + id + " recordarme=true"));
+            assertThat(log.eventos("usuario.login.fallido")).extracting(e -> e.getFormattedMessage()).containsExactly(
+                    "evento=usuario.login.fallido usuario=" + id + " motivo=clave_incorrecta",
+                    "evento=usuario.login.fallido usuario=- motivo=usuario_inexistente");
+            // El nombre que se intentó no se escribe nunca: puede ser un dato personal o una carga hostil.
+            assertThat(log.list().stream().map(e -> e.getFormattedMessage()).filter(m -> m.startsWith("evento=")))
+                    .isNotEmpty().noneMatch(m -> m.contains("juan") || m.contains("nadie"));
+        }
+    }
+
+    @Test
     void laContrasenaNiElTokenAparecenEnLosLogs(CapturedOutput output) throws Exception {
         registrar("juan");
         String token = idToken(login("juan", SECRETA, ""));

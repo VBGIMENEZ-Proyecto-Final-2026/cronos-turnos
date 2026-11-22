@@ -348,7 +348,7 @@ class AccountApiTest {
         String malo = emitir(TestKeys.generate(2048), Clock.systemUTC(), usuario("juan", Set.of("ROLE_USER")));
         account(malo).andExpect(status().isUnauthorized());
 
-        assertThat(output.getAll()).isNotEmpty().contains("Acceso rechazado: 401 GET /api/account")
+        assertThat(output.getAll()).isNotEmpty().contains("evento=seguridad.acceso.no_autenticado metodo=GET ruta=/api/account")
                 .doesNotContain(bueno).doesNotContain(malo).doesNotContain(firma).doesNotContain(SECRETA);
     }
 
