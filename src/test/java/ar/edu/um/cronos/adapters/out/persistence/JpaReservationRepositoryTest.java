@@ -254,6 +254,30 @@ class JpaReservationRepositoryTest {
     }
 
     @Test
+    void guardaCuandoSeMandoElTelefonoYUnRechazoDeLaCatedraLoLibera() {
+        var esperando = reservations.save(conHold(reservations.save(nueva(ana)), "hold-1", "process-1")
+                .waitingForPhone(VENCE, T0.plusSeconds(2)).informationRequested("request-event-1", T0.plusSeconds(3)));
+        assertThat(esperando.phoneSubmittedAt()).isNull();
+
+        var enviado = reservations.save(esperando.phoneSubmitted(T0.plusSeconds(4)));
+
+        assertThat(reservations.findById(enviado.id()).orElseThrow().phoneSubmittedAt()).isEqualTo(T0.plusSeconds(4));
+        var liberado = reservations.save(enviado.informationRejected("INVALID_PHONE_NUMBER", T0.plusSeconds(5)));
+        assertThat(reservations.findById(liberado.id()).orElseThrow().phoneSubmittedAt()).isNull();
+    }
+
+    @Test
+    void ningunaTablaTieneUnaColumnaDondeGuardarElNumeroDeTelefono() {
+        // El teléfono es un dato personal: se manda a la cátedra y no se guarda (decisión D3 del plan de Kafka). Lo único que
+        // existe es CUÁNDO se mandó. Si alguien agregara una columna para el número, esta prueba falla y obliga a decidirlo.
+        var columnas = jdbc.queryForList("SELECT table_name || '.' || column_name FROM information_schema.columns "
+                + "WHERE table_schema = 'public' AND (column_name ILIKE '%phone%' OR column_name ILIKE '%telefono%' "
+                + "OR column_name ILIKE '%celular%' OR column_name ILIKE '%mobile%')", String.class);
+
+        assertThat(columnas).containsExactly("reservation_process.phone_submitted_at");
+    }
+
+    @Test
     void laBaseYaNoAceptaRejectedComoEstado() {
         var guardado = reservations.save(nueva(ana));
 

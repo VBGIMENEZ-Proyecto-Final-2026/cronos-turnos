@@ -24,6 +24,8 @@ import java.util.Objects;
  * @param lastRejectionReason  el código del último {@code AdditionalInformationRejected}. Un rechazo no termina el
  *                             proceso (referencia 15.7): sigue esperando hasta {@code expiresAt}
  * @param catedraReservationId el id de la reserva confirmada en la cátedra; {@code null} hasta {@code CONFIRMED}
+ * @param phoneSubmittedAt     cuándo se mandó el teléfono a la cátedra, o {@code null} si todavía no (o si la cátedra lo
+ *                             rechazó o pidió otro). <b>Es lo único que se guarda del teléfono: el número no se guarda.</b>
  * @param version              para detectar escrituras simultáneas sobre el mismo proceso
  */
 public record Reservation(
@@ -45,6 +47,7 @@ public record Reservation(
         String requestEventId,
         String lastRejectionReason,
         Long catedraReservationId,
+        Instant phoneSubmittedAt,
         long version,
         Instant createdAt,
         Instant updatedAt) {
@@ -71,7 +74,7 @@ public record Reservation(
                                     String patientLastName, Instant now) {
         return new Reservation(null, userId, null, null, professionalId, professionalFirstName,
                 professionalLastName, slot.date(), slot.startTime(), slot.endTime(), patientFirstName,
-                patientLastName, ReservationStatus.STARTING, null, null, null, null, null, 0, now, now);
+                patientLastName, ReservationStatus.STARTING, null, null, null, null, null, null, 0, now, now);
     }
 
     /** La cátedra creó el hold. */
@@ -106,7 +109,8 @@ public record Reservation(
     public Reservation informationRequested(String requestEventId, Instant now) {
         Objects.requireNonNull(requestEventId, "requestEventId");
         requireAwaitingResult("AdditionalInformationRequested");
-        return copy(status, now).withRequestEventId(requestEventId);
+        // Un pedido nuevo es una pregunta nueva: si ya se había respondido, hay que volver a responder.
+        return copy(status, now).withRequestEventId(requestEventId).withPhoneSubmittedAt(null);
     }
 
     /**
@@ -116,7 +120,18 @@ public record Reservation(
      */
     public Reservation informationRejected(String reason, Instant now) {
         requireAwaitingResult("AdditionalInformationRejected");
-        return copy(status, now).withLastRejectionReason(stableCode(reason));
+        // La cátedra rechazó el teléfono: se puede mandar otro (referencia 15.7).
+        return copy(status, now).withLastRejectionReason(stableCode(reason)).withPhoneSubmittedAt(null);
+    }
+
+    /**
+     * Se mandó el teléfono a la cátedra. Solo se guarda <b>cuándo</b>, no el número. Solo mientras se espera el teléfono.
+     */
+    public Reservation phoneSubmitted(Instant now) {
+        if (status != ReservationStatus.WAITING_FOR_PHONE) {
+            throw new IllegalStateException("No se espera un teléfono en un proceso en " + status);
+        }
+        return copy(status, now).withPhoneSubmittedAt(now);
     }
 
     /** {@code AppointmentConfirmed}: la reserva quedó confirmada en la cátedra. Solo desde {@code WAITING_FOR_PHONE}. */
@@ -165,39 +180,46 @@ public record Reservation(
         return new Reservation(next.id, next.userId, reservationProcessId, holdId, next.professionalId,
                 next.professionalFirstName, next.professionalLastName, next.date, next.startTime, next.endTime,
                 next.patientFirstName, next.patientLastName, next.status, expiresAt, next.failureCode,
-                next.requestEventId, next.lastRejectionReason, next.catedraReservationId, next.version,
+                next.requestEventId, next.lastRejectionReason, next.catedraReservationId, next.phoneSubmittedAt, next.version,
                 next.createdAt, next.updatedAt);
     }
 
     private Reservation copy(ReservationStatus newStatus, Instant now) {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, newStatus,
-                expiresAt, failureCode, requestEventId, lastRejectionReason, catedraReservationId, version,
+                expiresAt, failureCode, requestEventId, lastRejectionReason, catedraReservationId, phoneSubmittedAt, version,
                 createdAt, now);
     }
 
     private Reservation withFailureCode(String code) {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                code, requestEventId, lastRejectionReason, catedraReservationId, version, createdAt, updatedAt);
+                code, requestEventId, lastRejectionReason, catedraReservationId, phoneSubmittedAt, version, createdAt, updatedAt);
     }
 
     private Reservation withRequestEventId(String eventId) {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                failureCode, eventId, lastRejectionReason, catedraReservationId, version, createdAt, updatedAt);
+                failureCode, eventId, lastRejectionReason, catedraReservationId, phoneSubmittedAt, version, createdAt, updatedAt);
     }
 
     private Reservation withLastRejectionReason(String reason) {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                failureCode, requestEventId, reason, catedraReservationId, version, createdAt, updatedAt);
+                failureCode, requestEventId, reason, catedraReservationId, phoneSubmittedAt, version, createdAt, updatedAt);
+    }
+
+    private Reservation withPhoneSubmittedAt(Instant submittedAt) {
+        return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
+                professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
+                failureCode, requestEventId, lastRejectionReason, catedraReservationId, submittedAt, version, createdAt,
+                updatedAt);
     }
 
     private Reservation withCatedraReservationId(long reservationId) {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                failureCode, requestEventId, lastRejectionReason, reservationId, version, createdAt, updatedAt);
+                failureCode, requestEventId, lastRejectionReason, reservationId, phoneSubmittedAt, version, createdAt, updatedAt);
     }
 
     /** El identificador con el que la cátedra conoce al paciente: opaco, no revela el login del usuario. */

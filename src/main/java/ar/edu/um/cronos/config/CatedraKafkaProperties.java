@@ -22,8 +22,6 @@ import java.time.Duration;
 public record CatedraKafkaProperties(
         String bootstrapServers,
         String actionsTopic,
-        /** El topic del teléfono (cronos → cátedra). Todavía no se usa: lo lee el productor del paso 5. */
-        String phoneTopic,
         String consumerGroupId,
         @DefaultValue("earliest") String autoOffsetReset,
         @DefaultValue("10s") Duration startRetryInterval,

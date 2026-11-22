@@ -7,13 +7,20 @@ import ar.edu.um.cronos.application.port.out.CatedraRejectedException;
 import ar.edu.um.cronos.application.port.out.CatedraUnavailableException;
 import ar.edu.um.cronos.application.port.out.EmailAlreadyUsedException;
 import ar.edu.um.cronos.application.port.out.LoginAlreadyUsedException;
+import ar.edu.um.cronos.application.port.out.PhoneUnavailableException;
 import ar.edu.um.cronos.application.port.out.ProfessionalNotFoundException;
 import ar.edu.um.cronos.application.port.out.ReservationConflictException;
 import ar.edu.um.cronos.application.reservation.InvalidSlotException;
+import ar.edu.um.cronos.application.reservation.PhoneAlreadySubmittedException;
+import ar.edu.um.cronos.application.reservation.PhoneNotRequestedException;
 import ar.edu.um.cronos.application.reservation.ProfessionalDisabledException;
+import ar.edu.um.cronos.application.reservation.ReservationExpiredException;
 import ar.edu.um.cronos.application.reservation.ReservationInProgressException;
+import ar.edu.um.cronos.application.reservation.ReservationNotAwaitingPhoneException;
+import ar.edu.um.cronos.application.reservation.ReservationNotFoundException;
 import ar.edu.um.cronos.application.user.AccountUnavailableException;
 import ar.edu.um.cronos.application.user.InvalidCredentialsException;
+import ar.edu.um.cronos.domain.InvalidPhoneNumberException;
 import jakarta.servlet.http.HttpServletRequest;
 import ar.edu.um.cronos.logging.LogEvent;
 import org.slf4j.Logger;
@@ -166,6 +173,50 @@ class ApiExceptionHandler {
     ResponseEntity<ProblemDetail> reservaEnCurso(ReservationInProgressException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(problem(HttpStatus.CONFLICT, "RESERVATION_IN_PROGRESS", request));
+    }
+
+    // ---- el teléfono de una reserva: ningún mensaje repite el número recibido -----------------------------------------
+
+    /** La reserva no existe o es de otro usuario: se responde lo mismo, para no revelar que existe la de otro. */
+    @ExceptionHandler(ReservationNotFoundException.class)
+    ResponseEntity<ProblemDetail> reservaInexistente(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(problem(HttpStatus.NOT_FOUND, "RESERVATION_NOT_FOUND", request));
+    }
+
+    @ExceptionHandler(InvalidPhoneNumberException.class)
+    ResponseEntity<ProblemDetail> telefonoInvalido(HttpServletRequest request) {
+        return ResponseEntity.badRequest().body(problem(HttpStatus.BAD_REQUEST, "INVALID_PHONE_NUMBER", request));
+    }
+
+    /** Todavía no llegó el pedido de teléfono de la cátedra: se puede reintentar en unos segundos. */
+    @ExceptionHandler(PhoneNotRequestedException.class)
+    ResponseEntity<ProblemDetail> telefonoNoPedido(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem(HttpStatus.CONFLICT, "PHONE_NOT_REQUESTED", request));
+    }
+
+    @ExceptionHandler(ReservationNotAwaitingPhoneException.class)
+    ResponseEntity<ProblemDetail> reservaNoEsperaTelefono(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "RESERVATION_NOT_AWAITING_PHONE", request));
+    }
+
+    @ExceptionHandler(ReservationExpiredException.class)
+    ResponseEntity<ProblemDetail> reservaVencida(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(problem(HttpStatus.CONFLICT, "RESERVATION_EXPIRED", request));
+    }
+
+    @ExceptionHandler(PhoneAlreadySubmittedException.class)
+    ResponseEntity<ProblemDetail> telefonoYaEnviado(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(problem(HttpStatus.CONFLICT, "PHONE_ALREADY_SUBMITTED", request));
+    }
+
+    /** Kafka no respondió a tiempo: nada se marcó, el usuario puede reintentar. (El caso de uso ya dejó su línea de log.) */
+    @ExceptionHandler(PhoneUnavailableException.class)
+    ResponseEntity<ProblemDetail> telefonoNoEnviado(HttpServletRequest request) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(problem(HttpStatus.SERVICE_UNAVAILABLE, "PHONE_DELIVERY_UNAVAILABLE", request));
     }
 
     @ExceptionHandler(ReservationConflictException.class)

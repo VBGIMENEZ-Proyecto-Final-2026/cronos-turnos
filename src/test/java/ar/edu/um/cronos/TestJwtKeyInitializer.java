@@ -21,6 +21,8 @@ public class TestJwtKeyInitializer implements ApplicationContextInitializer<Conf
                 "catedra.rest.id-token=token-tecnico-de-prueba",
                 "cronos.atlas.base-url=http://atlas.invalid",
                 // El consumidor de Kafka solo lo levantan las pruebas que lo ejercitan (ConsumidorKafkaTest).
-                "catedra.kafka.consumer.enabled=false").applyTo(context);
+                "catedra.kafka.consumer.enabled=false",
+                // El envío del teléfono por Kafka también: los tests de la API usan un doble o el envío apagado (503).
+                "catedra.phone.enabled=false").applyTo(context);
     }
 }

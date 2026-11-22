@@ -99,7 +99,8 @@ class StartReservationTest {
             return new Reservation(id, r.userId(), r.reservationProcessId(), r.holdId(), r.professionalId(),
                     r.professionalFirstName(), r.professionalLastName(), r.date(), r.startTime(), r.endTime(),
                     r.patientFirstName(), r.patientLastName(), r.status(), r.expiresAt(), r.failureCode(),
-                    r.requestEventId(), r.lastRejectionReason(), r.catedraReservationId(), version, r.createdAt(),
+                    r.requestEventId(), r.lastRejectionReason(), r.catedraReservationId(), r.phoneSubmittedAt(), version,
+                    r.createdAt(),
                     r.updatedAt());
         }
 

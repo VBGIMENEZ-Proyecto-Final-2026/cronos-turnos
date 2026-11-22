@@ -3,6 +3,7 @@ package ar.edu.um.cronos.config;
 import ar.edu.um.cronos.adapters.out.rest.CatedraHoldClient;
 import ar.edu.um.cronos.application.port.out.CatalogClient;
 import ar.edu.um.cronos.application.port.out.HoldGateway;
+import ar.edu.um.cronos.application.port.out.PhoneGateway;
 import ar.edu.um.cronos.application.port.out.ProcessedEvents;
 import ar.edu.um.cronos.application.port.out.ReservationRepository;
 import ar.edu.um.cronos.application.port.out.TransactionRunner;
@@ -10,6 +11,7 @@ import ar.edu.um.cronos.application.port.out.UnmatchedEvents;
 import ar.edu.um.cronos.application.port.out.UserRepository;
 import ar.edu.um.cronos.application.reservation.ProcessReservationEvent;
 import ar.edu.um.cronos.application.reservation.StartReservation;
+import ar.edu.um.cronos.application.reservation.SubmitPhone;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpHeaders;
@@ -38,6 +40,11 @@ class ReservationConfig {
                                       ReservationRepository reservations, Clock clock,
                                       AvailabilityProperties availability) {
         return new StartReservation(users, catalog, holds, reservations, clock, availability.zone());
+    }
+
+    @Bean
+    SubmitPhone submitPhone(UserRepository users, ReservationRepository reservations, PhoneGateway phones, Clock clock) {
+        return new SubmitPhone(users, reservations, phones, clock);
     }
 
     @Bean

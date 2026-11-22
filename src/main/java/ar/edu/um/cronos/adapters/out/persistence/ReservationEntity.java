@@ -80,6 +80,10 @@ class ReservationEntity {
     @Column(name = "catedra_reservation_id")
     private Long catedraReservationId;
 
+    /** Cuándo se mandó el teléfono. El número no se guarda en ninguna parte. */
+    @Column(name = "phone_submitted_at")
+    private Instant phoneSubmittedAt;
+
     @Version
     @Column(nullable = false)
     private long version;
@@ -114,6 +118,7 @@ class ReservationEntity {
         e.requestEventId = r.requestEventId();
         e.lastRejectionReason = r.lastRejectionReason();
         e.catedraReservationId = r.catedraReservationId();
+        e.phoneSubmittedAt = r.phoneSubmittedAt();
         e.version = r.version();
         e.createdAt = r.createdAt();
         e.updatedAt = r.updatedAt();
@@ -123,6 +128,7 @@ class ReservationEntity {
     Reservation toDomain() {
         return new Reservation(id, userId, reservationProcessId, holdId, professionalId, professionalFirstName,
                 professionalLastName, date, startTime, endTime, patientFirstName, patientLastName, status, expiresAt,
-                failureCode, requestEventId, lastRejectionReason, catedraReservationId, version, createdAt, updatedAt);
+                failureCode, requestEventId, lastRejectionReason, catedraReservationId, phoneSubmittedAt, version, createdAt,
+                updatedAt);
     }
 }

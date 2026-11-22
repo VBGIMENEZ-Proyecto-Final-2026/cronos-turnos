@@ -234,6 +234,23 @@ La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, l
 docker exec cronos-db psql -U cronos -d cronos -c 'SELECT event_type, reason, count(*) FROM unmatched_event GROUP BY 1, 2;'
 ```
 
+### Responder el pedido de teléfono: `POST /api/reservations/{id}/phone` (requiere token)
+
+La cátedra pide un teléfono por Kafka después de confirmar el hold (enunciado, sección 7, pasos 4 y 5). El usuario lo informa y cronos lo manda.
+
+```bash
+curl -s -X POST localhost:8081/api/reservations/6/phone -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' -d '{"phoneNumber":"+54 9 (261) 555-1234"}'
+# 202 {"id":6,"status":"WAITING_FOR_PHONE",...,"phoneSubmitted":true,...}   (el resultado llega después por Kafka)
+```
+
+- Se valida **como la cátedra**: se quitan espacios, guiones, paréntesis y puntos, y lo que queda tiene que ser `^\+?[0-9]{7,15}$` (`400 INVALID_PHONE_NUMBER`). Se manda el número ya limpio.
+- Solo el dueño (`404 RESERVATION_NOT_FOUND` para cualquier otro y para una inexistente), solo si la cátedra ya lo pidió (`409 PHONE_NOT_REQUESTED`), mientras espera (`409 RESERVATION_NOT_AWAITING_PHONE`), antes de vencer (`409 RESERVATION_EXPIRED`) y si no hay otro enviado sin respuesta (`409 PHONE_ALREADY_SUBMITTED`).
+- Si la cátedra **rechaza** el teléfono, el proceso sigue esperando hasta vencer y se puede mandar otro.
+- **El teléfono no se guarda ni se registra.** Se manda y se descarta; solo queda *cuándo* se mandó. Ninguna tabla tiene dónde guardarlo (una prueba lo exige) y ningún log ni mensaje de error lo repite.
+- Si Kafka no confirma a tiempo (5 s), `503 PHONE_DELIVERY_UNAVAILABLE`: no se marca nada y se puede reintentar. El productor usa `acks=all` e idempotencia; la clave del mensaje es el `reservationProcessId`.
+- **Para probar con la cátedra real, usá un número inventado** (como `+5492615551234`): la cátedra lo guarda y lo devuelve en su listado de reservas, en un servicio compartido.
+
 ## Logs
 
 Cada línea que informa algo es un **evento**: un código estable y pares `clave=valor` (norma completa y catálogo de eventos en el [ADR 0006](../../biblioteca/biblioteca-alejandria-/alejandria-docs/arquitectura/adr/0006-norma-de-logs.md) de la biblioteca).
@@ -248,4 +265,4 @@ Cada línea que informa algo es un **evento**: un código estable y pares `clave
 - **Qué nunca se escribe:** tokens, contraseñas, teléfono, nombres, el nombre de usuario, la dirección y el `groupId` de la cátedra. Solo ids. Lo vigilan `ArquitecturaTest` (nadie llama a `log.info/warn/error` directo) y `NormaDeLogsTest`.
 - Para escribir un evento nuevo: `LogEvent.info(log, "dominio.accion", "usuario", id, "reserva", reservaId)`.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, el envío del teléfono por Kafka, consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").

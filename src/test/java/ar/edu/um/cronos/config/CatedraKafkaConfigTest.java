@@ -14,7 +14,7 @@ class CatedraKafkaConfigTest {
 
     private static Map<String, Object> config(String autoOffsetReset) {
         return CatedraKafkaConfig.consumerConfig(new CatedraKafkaProperties("kafka.invalid:9092",
-                "alumnos.turnos.acciones.mi-cuenta", null, "alumnos-mi-cuenta", autoOffsetReset, null,
+                "alumnos.turnos.acciones.mi-cuenta", "alumnos-mi-cuenta", autoOffsetReset, null,
                 new CatedraKafkaProperties.Retry(3, 3, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(30))));
     }
 

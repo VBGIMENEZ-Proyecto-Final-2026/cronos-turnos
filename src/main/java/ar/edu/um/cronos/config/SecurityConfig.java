@@ -79,6 +79,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/professionals/*/availability")
                         .hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
                         .requestMatchers(HttpMethod.POST, "/api/reservations").hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/phone")
+                        .hasAnyAuthority(ROLE_USER, ROLE_ADMIN)
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint(problems)

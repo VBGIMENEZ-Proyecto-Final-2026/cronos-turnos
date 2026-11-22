@@ -162,6 +162,60 @@ class ReservationTest {
         assertThatThrownBy(() -> esperando().informationRequested(null, T1)).isInstanceOf(NullPointerException.class);
     }
 
+    // ---- el teléfono -------------------------------------------------------------------------------------------
+
+    @Test
+    void mandarElTelefonoGuardaSoloCuandoYNoCambiaNadaMas() {
+        var esperando = esperando().informationRequested("request-event-1", T1);
+
+        var enviado = esperando.phoneSubmitted(T1.plusSeconds(3));
+
+        assertThat(enviado.phoneSubmittedAt()).isEqualTo(T1.plusSeconds(3));
+        assertThat(enviado.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(enviado.requestEventId()).isEqualTo("request-event-1");
+        assertThat(enviado.updatedAt()).isEqualTo(T1.plusSeconds(3));
+        assertThat(esperando.phoneSubmittedAt()).as("inmutable").isNull();
+    }
+
+    @Test
+    void soloSePuedeMandarElTelefonoMientrasSeEspera() {
+        assertThatThrownBy(() -> nueva().phoneSubmitted(T1)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> nueva().held("hold-1", "process-1", VENCE, T1).phoneSubmitted(T1))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> esperando().confirmed(8251, T1).phoneSubmitted(T1))
+                .isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> esperando().expired(T1).phoneSubmitted(T1)).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    void unRechazoDeLaCatedraPermiteMandarOtroTelefono() {
+        var enviado = esperando().informationRequested("request-event-1", T1).phoneSubmitted(T1.plusSeconds(1));
+
+        var rechazado = enviado.informationRejected("INVALID_PHONE_NUMBER", T1.plusSeconds(2));
+
+        assertThat(rechazado.phoneSubmittedAt()).isNull();
+        assertThat(rechazado.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(rechazado.phoneSubmitted(T1.plusSeconds(3)).phoneSubmittedAt()).isEqualTo(T1.plusSeconds(3));
+    }
+
+    @Test
+    void unPedidoNuevoDeLaCatedraTambienPermiteResponderDeNuevo() {
+        var enviado = esperando().informationRequested("request-event-1", T1).phoneSubmitted(T1.plusSeconds(1));
+
+        var otraVez = enviado.informationRequested("request-event-2", T1.plusSeconds(2));
+
+        assertThat(otraVez.phoneSubmittedAt()).isNull();
+        assertThat(otraVez.requestEventId()).isEqualTo("request-event-2");
+    }
+
+    @Test
+    void unResultadoFinalNoBorraCuandoSeMandoElTelefono() {
+        var enviado = esperando().informationRequested("request-event-1", T1).phoneSubmitted(T1.plusSeconds(1));
+
+        assertThat(enviado.confirmed(8251, T1.plusSeconds(2)).phoneSubmittedAt()).isEqualTo(T1.plusSeconds(1));
+        assertThat(enviado.expired(T1.plusSeconds(2)).phoneSubmittedAt()).isEqualTo(T1.plusSeconds(1));
+    }
+
     @Test
     void unaTransicionNoPermitidaSeRechaza() {
         assertThatThrownBy(() -> nueva().waitingForPhone(VENCE, T1))
