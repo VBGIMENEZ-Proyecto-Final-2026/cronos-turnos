@@ -109,6 +109,12 @@ class StartReservationTest {
         }
 
         @Override
+        public Optional<Reservation> findByReservationProcessId(String reservationProcessId) {
+            return rows.values().stream().filter(r -> reservationProcessId.equals(r.reservationProcessId()))
+                    .findFirst();
+        }
+
+        @Override
         public Optional<Reservation> findActive(long userId, long professionalId, LocalDate date, LocalTime start) {
             return rows.values().stream().filter(r -> r.userId() == userId && r.professionalId() == professionalId
                     && r.date().equals(date) && r.startTime().equals(start) && r.status().occupiesSlot()).findFirst();
@@ -465,6 +471,50 @@ class StartReservationTest {
     }
 
     // ---- el mismo pedido dos veces --------------------------------------------------------------------------
+
+    // ---- la carrera con el consumidor de Kafka ----------------------------------------------------------------
+
+    @Test
+    void siElEventoDeLaCatedraLlegaEntreLaConfirmacionYElGuardadoNoHayErrorYSeConservaElPedidoDeTelefono() {
+        // La cátedra publica AdditionalInformationRequested apenas confirma: el consumidor lo guarda antes de que
+        // este pedido guarde su paso a WAITING_FOR_PHONE y le cambia la versión.
+        holds.onCall = () -> {
+            if (holds.count("confirmHold") == 1) {
+                reservations.save(reservations.rows.get(1L).informationRequested("request-event-1", AHORA.instant()));
+            }
+        };
+        try (var log = new ar.edu.um.cronos.LogCapture()) {
+            var r = caso.execute(pedido("ana"));
+
+            assertThat(r.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+            assertThat(r.requestEventId()).as("lo que guardó el consumidor no se pierde").isEqualTo("request-event-1");
+            assertThat(reservations.rows.get(r.id())).isEqualTo(r);
+            assertThat(reservations.historyOf(r.id())).containsExactly(ReservationStatus.STARTING,
+                    ReservationStatus.HELD, ReservationStatus.HELD, ReservationStatus.WAITING_FOR_PHONE);
+            assertThat(holds.count("confirmHold")).as("no se vuelve a llamar a la cátedra").isEqualTo(1);
+            assertThat(log.eventos("reserva.confirmacion.carrera")).singleElement().satisfies(e ->
+                    assertThat(e.getFormattedMessage()).contains("estado_actual=HELD")
+                            .contains("accion=se_reaplica_sobre_la_version_nueva"));
+        }
+    }
+
+    @Test
+    void siElEventoYaAdelantoElProcesoSeDevuelveTalCualEnLugarDePisarlo() {
+        holds.onCall = () -> {
+            if (holds.count("confirmHold") == 1) {
+                reservations.save(reservations.rows.get(1L).informationRequested("request-event-1", AHORA.instant())
+                        .waitingForPhone(VENCE, AHORA.instant()));
+            }
+        };
+
+        var r = caso.execute(pedido("ana"));
+
+        assertThat(r.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(r.expiresAt()).as("el que ya había guardado el consumidor").isEqualTo(VENCE);
+        assertThat(r.requestEventId()).isEqualTo("request-event-1");
+        assertThat(reservations.historyOf(r.id())).containsExactly(ReservationStatus.STARTING,
+                ReservationStatus.HELD, ReservationStatus.WAITING_FOR_PHONE);
+    }
 
     @Test
     void elMismoPedidoDosVecesNoCreaDosHoldsYDevuelveElMismoProceso() {
