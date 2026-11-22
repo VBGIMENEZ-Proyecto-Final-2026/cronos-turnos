@@ -40,7 +40,9 @@ public class ProcessReservationEvent {
     /** Intentos si otro escritor (el propio pedido de reserva, por ejemplo) cambió el proceso a la vez. */
     private static final int ATTEMPTS = 3;
     /** El motivo con el que se estaciona un evento cuyo proceso no existe en esta base. */
-    static final String UNKNOWN_PROCESS_REASON = "UNKNOWN_PROCESS";
+    public static final String UNKNOWN_PROCESS_REASON = "UNKNOWN_PROCESS";
+    /** El motivo con el que se estaciona un evento que sigue fallando al aplicarlo (un mensaje que nunca se va a poder). */
+    public static final String PROCESSING_FAILED_REASON = "PROCESSING_FAILED";
 
     /** Qué pasó con un evento. */
     public enum Outcome {
@@ -88,15 +90,21 @@ public class ProcessReservationEvent {
         }
     }
 
-    /**
-     * Estaciona un evento cuyo proceso no existe, para diagnosticarlo sin trabar el consumo. Es idempotente: estacionar
-     * el mismo evento dos veces deja una sola fila.
-     */
+    /** Estaciona un evento cuyo proceso no existe ({@link #UNKNOWN_PROCESS_REASON}). */
     public void park(ReservationEvent event) {
-        boolean parked = unmatched.park(event.eventId(), event.type(), event.reservationProcessId(),
-                UNKNOWN_PROCESS_REASON, now());
+        park(event, UNKNOWN_PROCESS_REASON);
+    }
+
+    /**
+     * Estaciona un evento que no se pudo aplicar, para diagnosticarlo sin trabar el consumo. Es idempotente: estacionar
+     * el mismo evento dos veces deja una sola fila. Guarda solo identificadores.
+     *
+     * @param reason {@link #UNKNOWN_PROCESS_REASON} o {@link #PROCESSING_FAILED_REASON}
+     */
+    public void park(ReservationEvent event, String reason) {
+        boolean parked = unmatched.park(event.eventId(), event.type(), event.reservationProcessId(), reason, now());
         LogEvent.warn(log, "kafka.evento.estacionado", "id_evento", event.eventId(), "tipo", event.type(),
-                "proceso", event.reservationProcessId(), "motivo", UNKNOWN_PROCESS_REASON,
+                "proceso", event.reservationProcessId(), "motivo", reason,
                 "accion", parked ? "estacionado" : "ya_estaba_estacionado");
     }
 

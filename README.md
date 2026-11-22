@@ -215,6 +215,25 @@ Valida el turno contra atlas (el profesional existe, está habilitado y el turno
 - El nombre del paciente es un dato personal: ninguna clase de cronos lo escribe en un log. Con `TRACE` en `org.hibernate` o en `org.postgresql`, Hibernate y el driver escriben los valores que enlazan al SQL (incluido el nombre); no se activa fuera del desarrollo.
 - Los datos del profesional guardados con la reserva son una foto de cuando se reservó, no el catálogo vigente.
 
+## Kafka: los resultados de las reservas
+
+La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, lo rechaza, confirma, vence, cancela). Cronos lo consume del topic de acciones y actualiza el proceso. Hoy es **solo lectura**: todavía no manda el teléfono (issue #15, pasos 5 y 6).
+
+- **Un grupo propio:** cronos consume con `<CATEDRA_KAFKA_CONSUMER_GROUP_ID>-cronos`, no con el de atlas, y lee desde el principio si el grupo no tiene offset (`earliest`): no se pierde ningún evento.
+- **Un mensaje por vez, y el offset se confirma después** de aplicarlo: si cronos se cae antes, el mensaje se vuelve a leer y no repite ningún efecto (cada evento se reconoce por su `eventId`).
+- **Si el mensaje no se entiende** (JSON roto, falta un campo, una versión de esquema distinta): se registra sin su contenido y se descarta; no traba la partición. Un tipo de evento que cronos no usa se ignora.
+- **Si el proceso del evento no existe:** se reintenta 3 veces y se estaciona en la tabla `unmatched_event`.
+- **Si la base no responde:** se reintenta **sin límite**, con espera creciente (hasta 30 s). No se descarta ni se saltea: el orden de los eventos de un proceso importa, y descartar podría perder una confirmación.
+- **Si un mensaje falla siempre por sí mismo:** 3 intentos y se estaciona (`PROCESSING_FAILED`).
+- **Cronos arranca aunque Kafka no responda** y sigue atendiendo pedidos; el consumidor reintenta conectarse cada 10 s. Para apagarlo: `CRONOS_KAFKA_CONSUMER_ENABLED=false`.
+- **Qué mirar:** `grep 'evento=kafka\.'` en el log; cada línea de un mensaje lleva `kafka-<partición>-<offset>` en el lugar del `requestId`. Los eventos están en el ADR 0006.
+- **Qué no se escribe nunca:** el nombre del topic ni del grupo (contienen el `groupId` de la cuenta), los servidores de la cátedra, el contenido de un mensaje ni el mensaje de una excepción de base de datos (puede traer la fila con los datos del paciente). Se fija además un `client.id` propio, porque el que arma el cliente lleva el nombre del grupo.
+
+```bash
+# Ver los eventos estacionados (procesos que no existen o mensajes que fallan siempre):
+docker exec cronos-db psql -U cronos -d cronos -c 'SELECT event_type, reason, count(*) FROM unmatched_event GROUP BY 1, 2;'
+```
+
 ## Logs
 
 Cada línea que informa algo es un **evento**: un código estable y pares `clave=valor` (norma completa y catálogo de eventos en el [ADR 0006](../../biblioteca/biblioteca-alejandria-/alejandria-docs/arquitectura/adr/0006-norma-de-logs.md) de la biblioteca).
@@ -229,4 +248,4 @@ Cada línea que informa algo es un **evento**: un código estable y pares `clave
 - **Qué nunca se escribe:** tokens, contraseñas, teléfono, nombres, el nombre de usuario, la dirección y el `groupId` de la cátedra. Solo ids. Lo vigilan `ArquitecturaTest` (nadie llama a `log.info/warn/error` directo) y `NormaDeLogsTest`.
 - Para escribir un evento nuevo: `LogEvent.info(log, "dominio.accion", "usuario", id, "reserva", reservaId)`.
 
-Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, Kafka (información adicional y resultado final), consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas.
+Estado actual: esqueleto, registro de usuarios (migración V1), disponibilidad de turnos (atlas + cátedra), inicio de reservas (hold y confirmación inicial), login con JWT RS256, validación de los tokens propios, `GET /api/account`, CORS y la prueba cruzada con atlas (`scripts/recorrido-cliente.sh`). Todavía no hay usuario administrador, el envío del teléfono por Kafka, consulta ni cancelación de reservas, ni recuperación al reiniciar: vienen en las próximas ramas. El consumo de los resultados por Kafka ya está (ver "Kafka").

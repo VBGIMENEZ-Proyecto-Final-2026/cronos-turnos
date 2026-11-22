@@ -54,12 +54,39 @@ catedra:
     connect-timeout: ${CATEDRA_REST_CONNECT_TIMEOUT:3s}
     read-timeout: ${CATEDRA_REST_READ_TIMEOUT:10s}
     max-retries: ${CATEDRA_REST_MAX_RETRIES:1}
+  # Kafka de la cátedra: el consumidor de los resultados de las reservas. Mismas variables que atlas (CATEDRA_KAFKA_*).
+  # Si el consumidor está encendido (por defecto sí), los servidores, el topic de acciones y el grupo son obligatorios.
+  # El grupo con el que cronos consume es el de la cuenta más "-cronos" (propio: no comparte offsets con atlas).
+  kafka:
+    bootstrap-servers: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS:}
+    actions-topic: ${CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC:}
+    phone-topic: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC:}
+    consumer-group-id: ${CATEDRA_KAFKA_CONSUMER_GROUP_ID:}
+    # earliest: un grupo sin offset lee todo lo que hay, así no se pierde ningún evento.
+    auto-offset-reset: ${CRONOS_KAFKA_AUTO_OFFSET_RESET:earliest}
+    # Si el consumidor no puede arrancar (la red de la cátedra caída), cronos arranca igual y reintenta cada tanto.
+    start-retry-interval: ${CRONOS_KAFKA_START_RETRY_INTERVAL:10s}
+    retry:
+      # Intentos en total antes de estacionar un evento de un proceso que no existe / que falla por sí mismo.
+      unknown-process-attempts: ${CRONOS_KAFKA_UNKNOWN_PROCESS_ATTEMPTS:3}
+      processing-attempts: ${CRONOS_KAFKA_PROCESSING_ATTEMPTS:3}
+      delay: ${CRONOS_KAFKA_RETRY_DELAY:1s}
+      multiplier: ${CRONOS_KAFKA_RETRY_MULTIPLIER:2.0}
+      # Una falla pasajera de la base se reintenta sin límite de intentos, con esta espera máxima.
+      max-delay: ${CRONOS_KAFKA_RETRY_MAX_DELAY:30s}
+    consumer:
+      enabled: ${CRONOS_KAFKA_CONSUMER_ENABLED:true}
 
 # Norma de logs (ADR 0006): cada línea de consola muestra el identificador del pedido que le pone RequestLogFilter
 # (vacío si no hay un pedido en curso, por ejemplo en el arranque o en un hilo de Kafka).
 logging:
   pattern:
     correlation: "[%X{requestId:-}] "
+  level:
+    # El cliente de Kafka y Spring Kafka escriben en INFO el nombre del grupo y del topic, que contienen el groupId (un dato
+    # del alumno), y los servidores de la cátedra. Cronos registra sus propios eventos del consumidor (kafka.*).
+    org.apache.kafka: WARN
+    org.springframework.kafka: WARN
 
 management:
   endpoints:

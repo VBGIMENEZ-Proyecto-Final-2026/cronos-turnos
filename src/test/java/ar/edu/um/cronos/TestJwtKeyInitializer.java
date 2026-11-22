@@ -19,6 +19,8 @@ public class TestJwtKeyInitializer implements ApplicationContextInitializer<Conf
                 "cronos.security.jwt.private-key=" + TestKeys.privatePem(),
                 "catedra.rest.base-url=http://catedra.invalid",
                 "catedra.rest.id-token=token-tecnico-de-prueba",
-                "cronos.atlas.base-url=http://atlas.invalid").applyTo(context);
+                "cronos.atlas.base-url=http://atlas.invalid",
+                // El consumidor de Kafka solo lo levantan las pruebas que lo ejercitan (ConsumidorKafkaTest).
+                "catedra.kafka.consumer.enabled=false").applyTo(context);
     }
 }
