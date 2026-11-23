@@ -1,0 +1,117 @@
+spring:
+  application:
+    name: cronos-turnos
+  # Lee el .env local (ignorado por git) si existe; en CI o con variables de entorno reales no hace falta.
+  config:
+    import: "optional:file:.env[.properties]"
+  datasource:
+    url: jdbc:postgresql://${CRONOS_DB_HOST:localhost}:${CRONOS_DB_PORT:5434}/${CRONOS_DB_NAME:cronos}
+    username: ${CRONOS_DB_USER:cronos}
+    password: ${CRONOS_DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+server:
+  # Atlas usa 8080; cronos 8081 para poder correr los dos a la vez.
+  port: ${CRONOS_SERVER_PORT:8081}
+
+cronos:
+  security:
+    jwt:
+      # Clave PRIVADA RSA (PKCS#8) con la que cronos firma los JWT (RS256). Solo una de las dos; sin ninguna la
+      # aplicación no arranca. Atlas valida con la pública. Nunca en el repo: ver .env.example.
+      private-key: ${CRONOS_JWT_PRIVATE_KEY:}
+      private-key-location: ${CRONOS_JWT_PRIVATE_KEY_LOCATION:}
+      ttl: ${CRONOS_JWT_TTL:1h}
+      remember-me-ttl: ${CRONOS_JWT_REMEMBER_ME_TTL:30d}
+      # Tolerancia de reloj al validar el vencimiento de los tokens recibidos (0 a 5 minutos).
+      clock-skew: ${CRONOS_JWT_CLOCK_SKEW:60s}
+    cors:
+      # Orígenes permitidos separados por coma (esquema://host[:puerto]); vacío = ninguno.
+      allowed-origins: ${CRONOS_CORS_ALLOWED_ORIGINS:}
+  # Servicio de catálogo (atlas-catalogo): cronos le reenvía el JWT del usuario, no tiene credencial propia (ADR 0004).
+  atlas:
+    base-url: ${ATLAS_BASE_URL:http://localhost:8080}
+    connect-timeout: ${ATLAS_CONNECT_TIMEOUT:2s}
+    read-timeout: ${ATLAS_READ_TIMEOUT:5s}
+    max-retries: ${ATLAS_MAX_RETRIES:1}
+  availability:
+    # Zona de las horas locales del consultorio (los horarios no traen zona): decide qué turnos ya empezaron.
+    zone: ${CRONOS_CLINIC_ZONE:America/Argentina/Buenos_Aires}
+    max-range-days: ${CRONOS_AVAILABILITY_MAX_RANGE_DAYS:31}
+  # Recuperación y vencimiento de las reservas (issue #13): una pasada al arrancar y otra cada `interval`.
+  recovery:
+    enabled: ${CRONOS_RECOVERY_ENABLED:true}
+    interval: ${CRONOS_RECOVERY_INTERVAL:30s}
+    # Cuánto sin modificarse para considerar abandonado un proceso a medias (STARTING sin hold, HELD sin confirmar).
+    stale-after: ${CRONOS_RECOVERY_STALE_AFTER:2m}
+    # Cuánto se espera después de expiresAt para cerrar un proceso como vencido (da tiempo al evento de la cátedra).
+    expiry-grace: ${CRONOS_RECOVERY_EXPIRY_GRACE:2m}
+    batch-size: ${CRONOS_RECOVERY_BATCH_SIZE:100}
+
+# Servicio central de la cátedra (cuenta técnica del proyecto). Mismas variables que atlas-catalogo.
+# Obligatorias: sin URL o sin token la aplicación no arranca.
+catedra:
+  rest:
+    base-url: ${CATEDRA_REST_BASE_URL:}
+    id-token: ${CATEDRA_ID_TOKEN:}
+    connect-timeout: ${CATEDRA_REST_CONNECT_TIMEOUT:3s}
+    read-timeout: ${CATEDRA_REST_READ_TIMEOUT:10s}
+    max-retries: ${CATEDRA_REST_MAX_RETRIES:1}
+  # Kafka de la cátedra: el consumidor de los resultados de las reservas. Mismas variables que atlas (CATEDRA_KAFKA_*).
+  # Si el consumidor está encendido (por defecto sí), los servidores, el topic de acciones y el grupo son obligatorios.
+  # El grupo con el que cronos consume es el de la cuenta más "-cronos" (propio: no comparte offsets con atlas).
+  kafka:
+    bootstrap-servers: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS:}
+    actions-topic: ${CATEDRA_KAFKA_APPOINTMENT_ACTIONS_TOPIC:}
+    consumer-group-id: ${CATEDRA_KAFKA_CONSUMER_GROUP_ID:}
+    # earliest: un grupo sin offset lee todo lo que hay, así no se pierde ningún evento.
+    auto-offset-reset: ${CRONOS_KAFKA_AUTO_OFFSET_RESET:earliest}
+    # Si el consumidor no puede arrancar (la red de la cátedra caída), cronos arranca igual y reintenta cada tanto.
+    start-retry-interval: ${CRONOS_KAFKA_START_RETRY_INTERVAL:10s}
+    retry:
+      # Intentos en total antes de estacionar un evento de un proceso que no existe / que falla por sí mismo.
+      unknown-process-attempts: ${CRONOS_KAFKA_UNKNOWN_PROCESS_ATTEMPTS:3}
+      processing-attempts: ${CRONOS_KAFKA_PROCESSING_ATTEMPTS:3}
+      delay: ${CRONOS_KAFKA_RETRY_DELAY:1s}
+      multiplier: ${CRONOS_KAFKA_RETRY_MULTIPLIER:2.0}
+      # Una falla pasajera de la base se reintenta sin límite de intentos, con esta espera máxima.
+      max-delay: ${CRONOS_KAFKA_RETRY_MAX_DELAY:30s}
+    consumer:
+      enabled: ${CRONOS_KAFKA_CONSUMER_ENABLED:true}
+    # Cada cuánto sin mensajes se revisa si el consumidor tiene particiones; sin ellas se avisa (Kafka no responde).
+    idle-event-interval: ${CRONOS_KAFKA_IDLE_EVENT_INTERVAL:30s}
+  # El teléfono que responde al pedido de información adicional, por Kafka (cronos → cátedra). Si el envío está encendido
+  # (por defecto sí), los servidores, el topic del teléfono y el groupId de la cuenta son obligatorios.
+  phone:
+    enabled: ${CRONOS_PHONE_PRODUCER_ENABLED:true}
+    bootstrap-servers: ${CATEDRA_KAFKA_BOOTSTRAP_SERVERS:}
+    topic: ${CATEDRA_KAFKA_APPOINTMENT_PHONE_TOPIC:}
+    group-id: ${CATEDRA_GROUP_ID:}
+    # Cuánto se espera la confirmación del broker; pasado ese plazo el endpoint responde 503 y no se reintenta solo.
+    send-timeout: ${CRONOS_PHONE_SEND_TIMEOUT:5s}
+
+# Norma de logs (ADR 0006): cada línea de consola muestra el identificador del pedido que le pone RequestLogFilter
+# (vacío si no hay un pedido en curso, por ejemplo en el arranque o en un hilo de Kafka).
+logging:
+  pattern:
+    correlation: "[%X{requestId:-}] "
+  level:
+    # El cliente de Kafka y Spring Kafka escriben el nombre del grupo (que contiene el groupId, un dato del alumno), el del
+    # topic y la dirección de los servidores de la cátedra: en INFO al armarse y, sobre todo, en WARN cada pocos segundos
+    # mientras Kafka no responde ("Connection to node -1 (host:puerto) could not be established", con el groupId en el
+    # prefijo). Quedan en ERROR; cronos registra sus propios eventos del consumidor (kafka.*), incluido
+    # kafka.consumidor.sin_particiones, que avisa cuando Kafka no responde sin escribir nada de eso.
+    org.apache.kafka: ERROR
+    org.springframework.kafka: ERROR
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
