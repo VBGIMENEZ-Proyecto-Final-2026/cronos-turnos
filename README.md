@@ -211,13 +211,13 @@ Valida el turno contra atlas (el profesional existe, está habilitado y el turno
 **Límites conocidos:**
 - Todavía **no hay listado ni consulta** de reservas, ni cancelación, ni Kafka (issues #12 y #15): un proceso queda en `WAITING_FOR_PHONE` aunque la cátedra lo haya dado por vencido, hasta que el usuario vuelva a pedir ese turno (se cierra como `EXPIRED`) o se implemente el evento de expiración y el barrido al reiniciar (#15 y #13).
 - Probado con **un hold real** contra la cátedra el 2026-11-21 (evidencia `isla-2-holds.md` en la biblioteca).
-- Un proceso que queda en `STARTING` (por ejemplo, si cronos se corta justo después de crearse) o un hold huérfano se resuelven con la recuperación al reiniciar (issue #13); hasta entonces un pedido repetido recibe `409 RESERVATION_IN_PROGRESS`.
+- Un proceso que queda en `STARTING` (por ejemplo, si cronos se corta justo después de crearse) o un hold sin confirmar los resuelve la recuperación (sección siguiente a Kafka); mientras tanto un pedido repetido recibe `409 RESERVATION_IN_PROGRESS`. Un hold huérfano cuyo id nunca se guardó vence solo en la cátedra.
 - El nombre del paciente es un dato personal: ninguna clase de cronos lo escribe en un log. Con `TRACE` en `org.hibernate` o en `org.postgresql`, Hibernate y el driver escriben los valores que enlazan al SQL (incluido el nombre); no se activa fuera del desarrollo.
 - Los datos del profesional guardados con la reserva son una foto de cuando se reservó, no el catálogo vigente.
 
 ## Kafka: los resultados de las reservas
 
-La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, lo rechaza, confirma, vence, cancela). Cronos lo consume del topic de acciones y actualiza el proceso. Hoy es **solo lectura**: todavía no manda el teléfono (issue #15, pasos 5 y 6).
+La cátedra informa por Kafka lo que pasa con cada proceso (pide el teléfono, lo rechaza, confirma, vence, cancela). Cronos lo consume del topic de acciones y actualiza el proceso. El teléfono sale por Kafka con `POST /api/reservations/{id}/phone` (ver más abajo).
 
 - **Un grupo propio:** cronos consume con `<CATEDRA_KAFKA_CONSUMER_GROUP_ID>-cronos`, no con el de atlas, y lee desde el principio si el grupo no tiene offset (`earliest`): no se pierde ningún evento.
 - **Un mensaje por vez, y el offset se confirma después** de aplicarlo: si cronos se cae antes, el mensaje se vuelve a leer y no repite ningún efecto (cada evento se reconoce por su `eventId`).
@@ -278,6 +278,22 @@ curl -s -X POST localhost:8081/api/reservations/6/phone -H "Authorization: Beare
 - **El teléfono no se guarda ni se registra.** Se manda y se descarta; solo queda *cuándo* se mandó. Ninguna tabla tiene dónde guardarlo (una prueba lo exige) y ningún log ni mensaje de error lo repite.
 - Si Kafka no confirma a tiempo (5 s), `503 PHONE_DELIVERY_UNAVAILABLE`: no se marca nada y se puede reintentar. El productor usa `acks=all` e idempotencia; la clave del mensaje es el `reservationProcessId`.
 - **Para probar con la cátedra real, usá un número inventado** (como `+5492615551234`): la cátedra lo guarda y lo devuelve en su listado de reservas, en un servicio compartido.
+
+## Recuperación y vencimiento de las reservas
+
+Un proceso no depende de que llegue un evento para cerrarse ni para recuperarse. Una tarea propia (`RecoveryScheduler`, hilo aparte) hace una **pasada al arrancar** y otra **cada 30 s**; cada pasada tiene tres pasos, en este orden:
+
+1. **Barrido de vencimiento.** Un proceso `HELD` o `WAITING_FOR_PHONE` cuyo `expiresAt` pasó hace más de 2 minutos se cierra como `EXPIRED`, aunque no llegue `AppointmentProcessExpired`. No necesita a la cátedra. Los 2 minutos de gracia (`CRONOS_RECOVERY_EXPIRY_GRACE`) dan tiempo a que llegue por Kafka lo que la cátedra haya resuelto justo antes de vencer: un `EXPIRED` es final y un evento tardío no lo reabre.
+2. **Procesos sin hold.** Un `STARTING` que lleva más de 2 minutos sin modificarse (cronos se cortó entre guardarlo y obtener el hold) pasa a `FAILED` con `failureCode=INTERRUPTED_BEFORE_HOLD`. Si la cátedra sí había creado el hold, vence solo.
+3. **Holds sin confirmar.** Un `HELD` abandonado se reconcilia **repitiendo la confirmación** con el `holdId` guardado (es idempotente en la cátedra; `RESERVATION_PROCESS_ALREADY_CONFIRMED` cuenta como éxito). Un timeout no prueba que la operación falló.
+
+**Los reintentos tienen límite.** Cada proceso se intenta como la confirmación normal (el primero y una reconciliación). Si la cátedra no responde **se corta la pasada** sin probar los demás (cada uno gastaría su propio timeout): los procesos siguen en `HELD`, la pasada siguiente los reintenta y, como mucho, hasta su `expiresAt`, cuando el barrido los cierra. Ningún proceso queda colgado y la cátedra caída no impide cerrar los vencidos.
+
+Solo se tocan procesos **abandonados** (2 minutos sin modificarse): uno recién guardado puede tener un pedido del usuario en curso, y si dos escritores coinciden gana el bloqueo optimista (el que pierde relee y sigue). Una falla de la base o de un proceso se registra y no corta la pasada ni la repetición.
+
+- **Qué mirar:** `grep 'evento=reserva.recuperacion\|evento=reserva.proceso.vencido_por_barrido'`. Una línea `reserva.recuperacion.pasada` resume cada pasada que hizo algo (`vencidos`, `interrumpidos`, `reconciliados`, `siguen_en_HELD`, `catedra_caida`).
+- **Configuración:** `CRONOS_RECOVERY_ENABLED`, `_INTERVAL`, `_STALE_AFTER`, `_EXPIRY_GRACE` y `_BATCH_SIZE` (ver `.env.example`).
+- **Límites conocidos:** no se concilia contra el listado de la cátedra (`GET /api/appointments`): si Kafka estuviera caído más que la gracia después de un vencimiento, una confirmación real podría llegar a un proceso ya cerrado. Con varias instancias de cronos las pasadas se pisarían sin daño (el bloqueo optimista decide), pero no se probó.
 
 ## Logs
 

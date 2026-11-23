@@ -12,6 +12,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.Arrays;
@@ -75,6 +76,19 @@ class JpaReservationRepository implements ReservationRepository {
     public Optional<Reservation> findActive(long userId, long professionalId, LocalDate date, LocalTime startTime) {
         return repository.findFirstByUserIdAndProfessionalIdAndDateAndStartTimeAndStatusIn(
                 userId, professionalId, date, startTime, ACTIVE).map(ReservationEntity::toDomain);
+    }
+
+    @Override
+    public List<Reservation> findExpiredPending(Instant cutoff, int limit) {
+        return repository.findByStatusInAndExpiresAtLessThanEqualOrderByExpiresAtAscIdAsc(
+                List.of(ReservationStatus.HELD, ReservationStatus.WAITING_FOR_PHONE), cutoff, PageRequest.of(0, limit))
+                .stream().map(ReservationEntity::toDomain).toList();
+    }
+
+    @Override
+    public List<Reservation> findStale(ReservationStatus status, Instant cutoff, int limit) {
+        return repository.findByStatusAndUpdatedAtLessThanEqualOrderByUpdatedAtAscIdAsc(
+                status, cutoff, PageRequest.of(0, limit)).stream().map(ReservationEntity::toDomain).toList();
     }
 
     private static boolean violates(Throwable error, String constraint) {

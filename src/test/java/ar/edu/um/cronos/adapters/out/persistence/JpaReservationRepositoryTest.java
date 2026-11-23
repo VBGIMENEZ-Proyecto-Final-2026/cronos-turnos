@@ -137,6 +137,49 @@ class JpaReservationRepositoryTest {
         assertThat(reservations.findById(999_999)).isEmpty();
     }
 
+    // ---- las consultas de la recuperación --------------------------------------------------------------------
+
+    private Reservation guardarEnTurno(long userId, int hora, java.util.function.UnaryOperator<Reservation> paso) {
+        var turno = new Slot(DIA, LocalTime.of(hora, 0), LocalTime.of(hora, 30));
+        return reservations.save(paso.apply(reservations.save(nueva(userId, turno))));
+    }
+
+    @Test
+    void buscaLosProcesosConHoldVencidosEnOrdenYSoloEsos() {
+        var tarde = guardarEnTurno(ana, 9, r -> r.held("h-1", "p-1", T0.plusSeconds(300), T0.plusSeconds(1)));
+        var primero = guardarEnTurno(ana, 10, r -> r.held("h-2", "p-2", T0.plusSeconds(100), T0.plusSeconds(1))
+                .waitingForPhone(T0.plusSeconds(100), T0.plusSeconds(2)));
+        guardarEnTurno(ana, 11, r -> r.held("h-3", "p-3", T0.plusSeconds(900), T0.plusSeconds(1))); // todavía no vence
+        guardarEnTurno(beto, 9, r -> r.held("h-4", "p-4", T0.plusSeconds(100), T0.plusSeconds(1))
+                .waitingForPhone(T0.plusSeconds(100), T0.plusSeconds(2)).confirmed(7L, T0.plusSeconds(3))); // confirmada
+        guardarEnTurno(beto, 10, r -> r.held("h-5", "p-5", T0.plusSeconds(100), T0.plusSeconds(1)).expired(T0.plusSeconds(2)));
+        guardarEnTurno(beto, 11, r -> r); // STARTING: sin vencimiento
+
+        var vencidos = reservations.findExpiredPending(T0.plusSeconds(300), 10);
+
+        assertThat(vencidos).extracting(Reservation::reservationProcessId).containsExactly("p-2", "p-1");
+        assertThat(primero.status()).isEqualTo(ReservationStatus.WAITING_FOR_PHONE);
+        assertThat(tarde.status()).isEqualTo(ReservationStatus.HELD);
+        assertThat(reservations.findExpiredPending(T0.plusSeconds(300), 1)).hasSize(1);
+        assertThat(reservations.findExpiredPending(T0.plusSeconds(99), 10)).isEmpty();
+    }
+
+    @Test
+    void buscaLosProcesosAbandonadosDeUnEstadoDelMasViejoAlMasNuevo() {
+        guardarEnTurno(ana, 9, r -> r);                                                              // STARTING, T0
+        var viejoHeld = guardarEnTurno(ana, 10, r -> r.held("h-1", "p-1", VENCE, T0.plusSeconds(10)));
+        guardarEnTurno(ana, 11, r -> r.held("h-2", "p-2", VENCE, T0.plusSeconds(500)));              // demasiado nuevo
+        guardarEnTurno(beto, 9, r -> r.held("h-3", "p-3", VENCE, T0.plusSeconds(5)));
+
+        var abandonados = reservations.findStale(ReservationStatus.HELD, T0.plusSeconds(100), 10);
+
+        assertThat(abandonados).extracting(Reservation::reservationProcessId).containsExactly("p-3", "p-1");
+        assertThat(abandonados.get(1).id()).isEqualTo(viejoHeld.id());
+        assertThat(reservations.findStale(ReservationStatus.STARTING, T0, 10)).hasSize(1);
+        assertThat(reservations.findStale(ReservationStatus.HELD, T0.plusSeconds(100), 1)).hasSize(1);
+        assertThat(reservations.findStale(ReservationStatus.WAITING_FOR_PHONE, T0.plusSeconds(1000), 10)).isEmpty();
+    }
+
     // ---- un solo proceso activo por turno --------------------------------------------------------------------
 
     @Test

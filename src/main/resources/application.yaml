@@ -44,6 +44,15 @@ cronos:
     # Zona de las horas locales del consultorio (los horarios no traen zona): decide qué turnos ya empezaron.
     zone: ${CRONOS_CLINIC_ZONE:America/Argentina/Buenos_Aires}
     max-range-days: ${CRONOS_AVAILABILITY_MAX_RANGE_DAYS:31}
+  # Recuperación y vencimiento de las reservas (issue #13): una pasada al arrancar y otra cada `interval`.
+  recovery:
+    enabled: ${CRONOS_RECOVERY_ENABLED:true}
+    interval: ${CRONOS_RECOVERY_INTERVAL:30s}
+    # Cuánto sin modificarse para considerar abandonado un proceso a medias (STARTING sin hold, HELD sin confirmar).
+    stale-after: ${CRONOS_RECOVERY_STALE_AFTER:2m}
+    # Cuánto se espera después de expiresAt para cerrar un proceso como vencido (da tiempo al evento de la cátedra).
+    expiry-grace: ${CRONOS_RECOVERY_EXPIRY_GRACE:2m}
+    batch-size: ${CRONOS_RECOVERY_BATCH_SIZE:100}
 
 # Servicio central de la cátedra (cuenta técnica del proyecto). Mismas variables que atlas-catalogo.
 # Obligatorias: sin URL o sin token la aplicación no arranca.

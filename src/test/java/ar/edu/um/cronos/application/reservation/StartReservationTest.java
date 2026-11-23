@@ -134,6 +134,22 @@ class StartReservationTest {
                     && r.date().equals(date) && r.startTime().equals(start) && r.status().occupiesSlot()).findFirst();
         }
 
+        @Override
+        public List<Reservation> findExpiredPending(Instant cutoff, int limit) {
+            return rows.values().stream()
+                    .filter(r -> r.status() == ReservationStatus.HELD || r.status() == ReservationStatus.WAITING_FOR_PHONE)
+                    .filter(r -> r.expiresAt() != null && !r.expiresAt().isAfter(cutoff))
+                    .sorted(java.util.Comparator.comparing(Reservation::expiresAt).thenComparing(Reservation::id))
+                    .limit(limit).toList();
+        }
+
+        @Override
+        public List<Reservation> findStale(ReservationStatus status, Instant cutoff, int limit) {
+            return rows.values().stream().filter(r -> r.status() == status && !r.updatedAt().isAfter(cutoff))
+                    .sorted(java.util.Comparator.comparing(Reservation::updatedAt).thenComparing(Reservation::id))
+                    .limit(limit).toList();
+        }
+
         List<ReservationStatus> historyOf(long id) {
             return history.get(id);
         }

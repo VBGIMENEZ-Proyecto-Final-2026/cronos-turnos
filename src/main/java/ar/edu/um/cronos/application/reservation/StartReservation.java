@@ -130,6 +130,22 @@ public class StartReservation {
     }
 
     /**
+     * Retoma la confirmación de un proceso que quedó en {@code HELD} (la recuperación, no un pedido del usuario): repite
+     * la confirmación del hold, que es idempotente en la cátedra. Hace lo mismo que cuando el usuario repite el pedido:
+     * guarda el resultado ({@code WAITING_FOR_PHONE}, o {@code EXPIRED} / {@code FAILED} si la cátedra lo dio por
+     * terminado) y registra cada intento.
+     *
+     * @throws CatedraRejectedException    si la cátedra rechazó la confirmación (el proceso ya quedó cerrado)
+     * @throws CatedraUnavailableException si sigue sin saberse (el proceso sigue en {@code HELD})
+     */
+    public Reservation reconcile(Reservation held) {
+        if (held.status() != ReservationStatus.HELD) {
+            throw new IllegalArgumentException("Solo se reconcilia un proceso en HELD, no en " + held.status());
+        }
+        return confirm(held, Reservation.externalPatientId(held.userId()));
+    }
+
+    /**
      * El momento actual a la precisión de la base (microsegundos): lo que se devuelve al guardar es idéntico a lo que
      * se lee después, y un pedido repetido responde exactamente lo mismo.
      */

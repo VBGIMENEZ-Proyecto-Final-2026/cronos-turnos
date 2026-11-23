@@ -70,6 +70,16 @@ class ProcessReservationEventRetryTest {
         }
 
         @Override
+        public java.util.List<Reservation> findExpiredPending(java.time.Instant cutoff, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public java.util.List<Reservation> findStale(ReservationStatus status, java.time.Instant cutoff, int limit) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
         public Optional<Reservation> findActive(long userId, long professionalId, LocalDate date, LocalTime start) {
             return Optional.empty();
         }
