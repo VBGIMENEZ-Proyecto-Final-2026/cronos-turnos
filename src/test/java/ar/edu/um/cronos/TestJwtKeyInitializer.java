@@ -23,6 +23,9 @@ public class TestJwtKeyInitializer implements ApplicationContextInitializer<Conf
                 // El consumidor de Kafka solo lo levantan las pruebas que lo ejercitan (ConsumidorKafkaTest).
                 "catedra.kafka.consumer.enabled=false",
                 // El envío del teléfono por Kafka también: los tests de la API usan un doble o el envío apagado (503).
-                "catedra.phone.enabled=false").applyTo(context);
+                "catedra.phone.enabled=false",
+                // La recuperación corre sola solo en las pruebas que la ejercitan: si no, cerraría por tiempo los procesos
+                // que las demás pruebas arman a mano.
+                "cronos.recovery.enabled=false").applyTo(context);
     }
 }
