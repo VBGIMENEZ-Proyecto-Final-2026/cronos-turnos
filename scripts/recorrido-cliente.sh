@@ -14,7 +14,7 @@
 #   CRONOS_URL=http://localhost:8081   ATLAS_URL=http://localhost:8080
 #   DEV_PRIVATE_KEY=~/.atlas-dev/dev-private.pem   la clave de DESARROLLO con la que firma cronos: permite armar un
 #                                      token vencido y uno con un rol que no alcanza (sin ella se omiten esos pasos)
-#   LIMPIAR=1                          borra al final el usuario de prueba de la base de cronos (docker exec cronos-db)
+#   LIMPIAR=1                          borra al final el usuario de prueba de la base de cronos (podman o docker exec cronos-db)
 #
 # Nada de lo que imprime es secreto: el token se muestra recortado y los claims no llevan datos personales.
 set -uo pipefail
@@ -163,7 +163,12 @@ echo "     (si la cátedra no responde, cronos contesta 503 CATEDRA_UNAVAILABLE 
 
 if [ "${LIMPIAR:-0}" = "1" ]; then
   titulo "7. Limpieza"
-  docker exec cronos-db psql -U "${CRONOS_DB_USER:-cronos}" -d "${CRONOS_DB_NAME:-cronos}" -tc \
+  # Usuario y base: de las variables o, si no están, del .env (solo esas dos líneas; el resto del .env no se lee).
+  MOTOR=podman; command -v podman >/dev/null || MOTOR=docker
+  ENV_FILE="$(dirname "$0")/../.env"
+  DB_USER="${CRONOS_DB_USER:-$(grep -m1 '^CRONOS_DB_USER=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)}"
+  DB_NAME="${CRONOS_DB_NAME:-$(grep -m1 '^CRONOS_DB_NAME=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)}"
+  "$MOTOR" exec cronos-db psql -U "${DB_USER:-cronos}" -d "${DB_NAME:-cronos}" -tc \
     "DELETE FROM app_user WHERE login = '$LOGIN';" || echo "  no se pudo borrar (¿otro usuario o base?)"
 else
   printf '\nQuedó el usuario %s en la base de cronos. Para que la próxima corrida lo borre al terminar: LIMPIAR=1 scripts/recorrido-cliente.sh. O a mano:\n  docker exec cronos-db psql -U cronos -d cronos -c "DELETE FROM app_user WHERE login = '"'"'%s'"'"';"\n' "$LOGIN" "$LOGIN"
